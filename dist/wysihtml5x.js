@@ -25,7 +25,7 @@ if(!Array.isArray) {
     return Object.prototype.toString.call(arg) === '[object Array]';
   };
 };/**
- * @license wysihtml5x v0.4.8
+ * @license wysihtml5x v0.4.12
  * https://github.com/Edicy/wysihtml5
  *
  * Author: Christopher Blum (https://github.com/tiff)
@@ -36,7 +36,7 @@ if(!Array.isArray) {
  *
  */
 var wysihtml5 = {
-  version: "0.4.8",
+  version: "0.4.12",
 
   // namespaces
   commands:   {},
@@ -5505,13 +5505,15 @@ wysihtml5.dom.getStyle = (function() {
     };
   };
 })();
-;wysihtml5.dom.getTextNodes = function(node){
+;wysihtml5.dom.getTextNodes = function(node, ingoreEmpty){
   var all = [];
   for (node=node.firstChild;node;node=node.nextSibling){
-    if (node.nodeType==3) {
+    if (node.nodeType == 3) {
+      if (!ingoreEmpty || !(/^\s*$/).test(node.innerText || node.textContent)) {
         all.push(node);
+      }
     } else {
-        all = all.concat(wysihtml5.dom.getTextNodes(node));
+      all = all.concat(wysihtml5.dom.getTextNodes(node, ingoreEmpty));
     }
   }
   return all;
@@ -5813,9 +5815,14 @@ wysihtml5.dom.parse = (function() {
     var context       = config.context || elementOrHtml.ownerDocument || document,
         fragment      = context.createDocumentFragment(),
         isString      = typeof(elementOrHtml) === "string",
+        clearInternals = false,
         element,
         newNode,
         firstChild;
+
+    if (config.clearInternals === true) {
+      clearInternals = true;
+    }
 
     if (config.uneditableClass) {
       uneditableClass = config.uneditableClass;
@@ -5829,10 +5836,12 @@ wysihtml5.dom.parse = (function() {
 
     while (element.firstChild) {
       firstChild = element.firstChild;
-      newNode = _convert(firstChild, config.cleanUp);
-      element.removeChild(firstChild);
+      newNode = _convert(firstChild, config.cleanUp, clearInternals);
       if (newNode) {
         fragment.appendChild(newNode);
+      }
+      if (firstChild !== newNode) {
+        element.removeChild(firstChild);
       }
     }
 
@@ -5845,7 +5854,7 @@ wysihtml5.dom.parse = (function() {
     return isString ? wysihtml5.quirks.getCorrectInnerHTML(element) : element;
   }
 
-  function _convert(oldNode, cleanUp) {
+  function _convert(oldNode, cleanUp, clearInternals) {
     var oldNodeType     = oldNode.nodeType,
         oldChilds       = oldNode.childNodes,
         oldChildsLength = oldChilds.length,
@@ -5855,21 +5864,28 @@ wysihtml5.dom.parse = (function() {
         newNode,
         newChild;
 
+    // Passes directly elemets with uneditable class
     if (uneditableClass && oldNodeType === 1 && wysihtml5.dom.hasClass(oldNode, uneditableClass)) {
         return oldNode;
     }
 
-    newNode = method && method(oldNode);
+    newNode = method && method(oldNode, clearInternals);
 
+    // Remove or unwrap node in case of return value null or false
     if (!newNode) {
         if (newNode === false) {
             // false defines that tag should be removed but contents should remain (unwrap)
             fragment = oldNode.ownerDocument.createDocumentFragment();
 
             for (i = oldChildsLength; i--;) {
-              newChild = _convert(oldChilds[i], cleanUp);
-              if (newChild) {
-                fragment.insertBefore(newChild, fragment.firstChild);
+              if (oldChilds[i]) {
+                newChild = _convert(oldChilds[i], cleanUp, clearInternals);
+                if (newChild) {
+                  if (oldChilds[i] === newChild) {
+                    i--;
+                  }
+                  fragment.insertBefore(newChild, fragment.firstChild);
+                }
               }
             }
 
@@ -5893,14 +5909,21 @@ wysihtml5.dom.parse = (function() {
             }
             return fragment;
         } else {
-            return null;
+          // Remove
+          return null;
         }
     }
 
+    // Converts all childnodes
     for (i=0; i<oldChildsLength; i++) {
-      newChild = _convert(oldChilds[i], cleanUp);
-      if (newChild) {
-        newNode.appendChild(newChild);
+      if (oldChilds[i]) {
+        newChild = _convert(oldChilds[i], cleanUp, clearInternals);
+        if (newChild) {
+          if (oldChilds[i] === newChild) {
+            i--;
+          }
+          newNode.appendChild(newChild);
+        }
       }
     }
 
@@ -5908,7 +5931,7 @@ wysihtml5.dom.parse = (function() {
     if (cleanUp &&
         newNode.nodeName.toLowerCase() === DEFAULT_NODE_NAME &&
         (!newNode.childNodes.length ||
-         ((/^\s*$/gi).test(newNode.innerHTML) && oldNode.className !== "_wysihtml5-temp-placeholder" && oldNode.className !== "rangySelectionBoundary") ||
+         ((/^\s*$/gi).test(newNode.innerHTML) && (clearInternals || (oldNode.className !== "_wysihtml5-temp-placeholder" && oldNode.className !== "rangySelectionBoundary"))) ||
          !newNode.attributes.length)
         ) {
       fragment = newNode.ownerDocument.createDocumentFragment();
@@ -5927,7 +5950,7 @@ wysihtml5.dom.parse = (function() {
     return newNode;
   }
 
-  function _handleElement(oldNode) {
+  function _handleElement(oldNode, clearInternals) {
     var rule,
         newNode,
         tagRules    = currentRules.tags,
@@ -5985,10 +6008,10 @@ wysihtml5.dom.parse = (function() {
     }
 
     newNode = oldNode.ownerDocument.createElement(rule.rename_tag || nodeName);
-    _handleAttributes(oldNode, newNode, rule);
+    _handleAttributes(oldNode, newNode, rule, clearInternals);
     _handleStyles(oldNode, newNode, rule);
     // tests if type condition is met or node should be removed/unwrapped
-    if (rule.one_of_type && !_testTypes(oldNode, currentRules, rule.one_of_type)) {
+    if (rule.one_of_type && !_testTypes(oldNode, currentRules, rule.one_of_type, clearInternals)) {
       return (rule.remove_action && rule.remove_action == "unwrap") ? false : null;
     }
 
@@ -5998,11 +6021,11 @@ wysihtml5.dom.parse = (function() {
     return newNode;
   }
 
-  function _testTypes(oldNode, rules, types) {
+  function _testTypes(oldNode, rules, types, clearInternals) {
     var definition, type;
 
     // do not interfere with placeholder span or pasting caret position is not maintained
-    if (oldNode.nodeName === "SPAN" && (oldNode.className === "_wysihtml5-temp-placeholder" || oldNode.className === "rangySelectionBoundary")) {
+    if (oldNode.nodeName === "SPAN" && !clearInternals && (oldNode.className === "_wysihtml5-temp-placeholder" || oldNode.className === "rangySelectionBoundary")) {
       return true;
     }
 
@@ -6112,7 +6135,8 @@ wysihtml5.dom.parse = (function() {
     }
   }
 
-  function _handleAttributes(oldNode, newNode, rule) {
+  // TODO: refactor. Too long to read
+  function _handleAttributes(oldNode, newNode, rule, clearInternals) {
     var attributes          = {},                         // fresh new set of attributes to set on newNode
         setClass            = rule.set_class,             // classes to set
         addClass            = rule.add_class,             // add classes based on existing attributes
@@ -6189,8 +6213,11 @@ wysihtml5.dom.parse = (function() {
       attributes["class"] = oldNode.getAttribute("class");
     } else {
       // make sure that wysihtml5 temp class doesn't get stripped out
-      allowedClasses["_wysihtml5-temp-placeholder"] = 1;
-      allowedClasses["_rangySelectionBoundary"] = 1;
+      if (!clearInternals) {
+        allowedClasses["_wysihtml5-temp-placeholder"] = 1;
+        allowedClasses["_rangySelectionBoundary"] = 1;
+        allowedClasses["wysiwyg-tmp-selected-cell"] = 1;
+      }
 
       // add old classes last
       oldClasses = oldNode.getAttribute("class");
@@ -6207,6 +6234,14 @@ wysihtml5.dom.parse = (function() {
 
       if (newClasses.length) {
         attributes["class"] = wysihtml5.lang.array(newClasses).unique().join(" ");
+      }
+    }
+
+    // remove table selection class if present
+    if (attributes["class"] && clearInternals) {
+      attributes["class"] = attributes["class"].replace("wysiwyg-tmp-selected-cell", "");
+      if ((/^\s*$/g).test(attributes["class"])) {
+        delete attributes.class;
       }
     }
 
@@ -7049,6 +7084,13 @@ wysihtml5.dom.replaceWithChildNodes = function(node) {
         unset = function() {
           if (view.hasPlaceholderSet()) {
             view.clear();
+            view.element.focus();
+            setTimeout(function() {
+              var sel = view.selection.getSelection();
+              if (!sel.focusNode || !sel.anchorNode) {
+                view.selection.selectNode(view.element.firstChild || view.element);
+              }
+            }, 0);
           }
           view.placeholderSet = false;
           dom.removeClass(view.element, CLASS_NAME);
@@ -8613,6 +8655,12 @@ wysihtml5.quirks.ensureProperClearing = (function() {
       }
     },
 
+    fixSelBorders: function() {
+      var range = this.getRange();
+      expandRangeToSurround(range);
+      this.setSelection(range);
+    },
+
     getSelectedOwnNodes: function(controlRange) {
       var selection,
           ranges = this.getOwnRanges(),
@@ -8731,12 +8779,17 @@ wysihtml5.quirks.ensureProperClearing = (function() {
 
     caretIsFirstInSelection: function() {
       var r = rangy.createRange(this.doc),
-          s = this.getSelection();
-
-      r.selectNodeContents(this.getRange().commonAncestorContainer);
-      r.collapse(true);
-
-      return (this.isCollapsed() && (r.startContainer === s.anchorNode || r.endContainer === s.anchorNode) && r.startOffset === s.anchorOffset);
+          s = this.getSelection(),
+          range = this.getRange(),
+          startNode = range.startContainer;
+      
+      if (startNode.nodeType === wysihtml5.TEXT_NODE) {
+        return this.isCollapsed() && (startNode.nodeType === wysihtml5.TEXT_NODE && (/^\s*$/).test(startNode.data.substr(0,range.startOffset)));
+      } else {
+        r.selectNodeContents(this.getRange().commonAncestorContainer);
+        r.collapse(true);
+        return (this.isCollapsed() && (r.startContainer === s.anchorNode || r.endContainer === s.anchorNode) && r.startOffset === s.anchorOffset);
+      }
     },
 
     caretIsInTheBeginnig: function(ofNode) {
@@ -9111,8 +9164,8 @@ wysihtml5.quirks.ensureProperClearing = (function() {
     },
 
     _endOffsetForNode: function(node) {
-      var range = document.createRange()
-      range.selectNodeContents(node)
+      var range = document.createRange();
+      range.selectNodeContents(node);
       return range.endOffset;
     },
 
@@ -9354,6 +9407,25 @@ wysihtml5.quirks.ensureProperClearing = (function() {
     return false;
   }
 
+  function isMatchingAllready(node, tags, style, className) {
+    if (style) {
+      return getMatchingStyleRegexp(node, style);
+    } else if (className) {
+      return wysihtml5.dom.hasClass(node, className);
+    } else {
+      return rangy.dom.arrayContains(tags, node.tagName.toLowerCase());
+    }
+  }
+
+  function areMatchingAllready(nodes, tags, style, className) {
+    for (var i = nodes.length; i--;) {
+      if (!isMatchingAllready(nodes[i], tags, style, className)) {
+        return false;
+      }
+    }
+    return nodes.length ? true : false;
+  }
+
   function removeOrChangeStyle(el, style, regExp) {
 
     var exactRegex = getMatchingStyleRegexp(el, style);
@@ -9376,9 +9448,6 @@ wysihtml5.quirks.ensureProperClearing = (function() {
     var parent = el.parentNode;
     while (el.firstChild) {
       parent.insertBefore(el.firstChild, el);
-    }
-    if (parent.normalize) {
-      parent.normalize();
     }
     parent.removeChild(el);
   }
@@ -9525,6 +9594,27 @@ wysihtml5.quirks.ensureProperClearing = (function() {
         node = node.parentNode;
       }
       return false;
+    },
+
+    getMatchingAncestor: function(node) {
+      var ancestor = this.getAncestorWithClass(node),
+          matchType = false;
+
+      if (!ancestor) {
+        ancestor = this.getAncestorWithStyle(node);
+        if (ancestor) {
+          matchType = "style";
+        }
+      } else {
+        if (this.cssStyle) {
+          matchType = "class";
+        }
+      }
+
+      return {
+        "element": ancestor,
+        "type": matchType
+      };
     },
 
     // Normalizes nodes after applying a CSS class to a Range.
@@ -9700,10 +9790,7 @@ wysihtml5.quirks.ensureProperClearing = (function() {
 
               for (var i = 0, len = textNodes.length; i < len; ++i) {
                 textNode = textNodes[i];
-                if (!this.getAncestorWithClass(textNode)) {
-                  this.applyToTextNode(textNode);
-                }
-                if (!this.getAncestorWithStyle(textNode)) {
+                if (!this.getMatchingAncestor(textNode).element) {
                   this.applyToTextNode(textNode);
                 }
               }
@@ -9722,8 +9809,8 @@ wysihtml5.quirks.ensureProperClearing = (function() {
 
     undoToRange: function(range) {
       var textNodes, textNode, ancestorWithClass, ancestorWithStyle;
-
       for (var ri = range.length; ri--;) {
+
           textNodes = range[ri].getNodes([wysihtml5.TEXT_NODE]);
           if (textNodes.length) {
             range[ri].splitBoundaries();
@@ -9736,16 +9823,15 @@ wysihtml5.quirks.ensureProperClearing = (function() {
             textNodes = [node];
           }
 
-
           for (var i = 0, len = textNodes.length; i < len; ++i) {
             if (range[ri].isValid()) {
               textNode = textNodes[i];
-              ancestorWithClass = this.getAncestorWithClass(textNode);
-              ancestorWithStyle = this.getAncestorWithStyle(textNode);
-              if (ancestorWithClass) {
-                this.undoToTextNode(textNode, range[ri], ancestorWithClass);
-              } else if (ancestorWithStyle) {
-                this.undoToTextNode(textNode, range[ri], false, ancestorWithStyle);
+
+              ancestor = this.getMatchingAncestor(textNode);
+              if (ancestor.type === "style") {
+                this.undoToTextNode(textNode, range[ri], false, ancestor.element);
+              } else if (ancestor.element) {
+                this.undoToTextNode(textNode, range[ri], ancestor.element);
               }
             }
           }
@@ -9797,38 +9883,65 @@ wysihtml5.quirks.ensureProperClearing = (function() {
 
     isAppliedToRange: function(range) {
       var ancestors = [],
+          appliedType = "full",
           ancestor, styleAncestor, textNodes;
 
       for (var ri = range.length; ri--;) {
 
         textNodes = range[ri].getNodes([wysihtml5.TEXT_NODE]);
         if (!textNodes.length) {
-          ancestor = this.getAncestorWithClass(range[ri].startContainer);
-          if (!ancestor) {
-            ancestor = this.getAncestorWithStyle(range[ri].startContainer);
-          }
-          return ancestor ? [ancestor] : false;
+          ancestor = this.getMatchingAncestor(range[ri].startContainer).element;
+
+          return (ancestor) ? {
+            "elements": [ancestor],
+            "coverage": appliedType
+          } : false;
         }
 
         for (var i = 0, len = textNodes.length, selectedText; i < len; ++i) {
           selectedText = this.getTextSelectedByRange(textNodes[i], range[ri]);
-          ancestor = this.getAncestorWithClass(textNodes[i]);
-          if (!ancestor) {
-            ancestor = this.getAncestorWithStyle(textNodes[i]);
-          }
+          ancestor = this.getMatchingAncestor(textNodes[i]).element;
           if (ancestor && selectedText != "") {
             ancestors.push(ancestor);
+
+            if (wysihtml5.dom.getTextNodes(ancestor, true).length === 1) {
+              appliedType = "full";
+            } else if (appliedType === "full") {
+              appliedType = "inline";
+            }
+          } else if (!ancestor) {
+            appliedType = "partial";
           }
         }
 
       }
 
-      return (ancestors.length) ? ancestors : false;
+      return (ancestors.length) ? {
+        "elements": ancestors,
+        "coverage": appliedType
+      } : false;
     },
 
     toggleRange: function(range) {
-      if (this.isAppliedToRange(range)) {
-        this.undoToRange(range);
+      var isApplied = this.isAppliedToRange(range),
+          parentsExactMatch;
+
+      if (isApplied) {
+        if (isApplied.coverage === "full") {
+          this.undoToRange(range);
+        } else if (isApplied.coverage === "inline") {
+          parentsExactMatch = areMatchingAllready(isApplied.elements, this.tagNames, this.cssStyle, this.cssClass);
+          this.undoToRange(range);
+          if (!parentsExactMatch) {
+            this.applyToRange(range);
+          }
+        } else {
+          // partial
+          if (!areMatchingAllready(isApplied.elements, this.tagNames, this.cssStyle, this.cssClass)) {
+            this.undoToRange(range);
+          }
+          this.applyToRange(range);
+        }
       } else {
         this.applyToRange(range);
       }
@@ -10656,7 +10769,7 @@ wysihtml5.commands.formatCode = {
     state: function(composer, command, tagName, className, classRegExp, cssStyle, styleRegExp) {
       var doc           = composer.doc,
           aliasTagName  = ALIAS_MAPPING[tagName] || tagName,
-          ownRanges;
+          ownRanges, isApplied;
 
       // Check whether the document contains a node with the desired tagName
       if (!wysihtml5.dom.hasElementWithTagName(doc, tagName) &&
@@ -10675,7 +10788,9 @@ wysihtml5.commands.formatCode = {
         return false;
       }
 
-      return _getApplier(tagName, className, classRegExp, cssStyle, styleRegExp, composer.element).isAppliedToRange(ownRanges);
+      isApplied = _getApplier(tagName, className, classRegExp, cssStyle, styleRegExp, composer.element).isAppliedToRange(ownRanges);
+
+      return (isApplied && isApplied.elements) ? isApplied.elements : false;
     }
   };
 })(wysihtml5);
@@ -11489,7 +11604,7 @@ wysihtml5.commands.formatCode = {
 
     transact: function() {
       var previousHtml      = this.historyStr[this.position - 1],
-          currentHtml       = this.composer.getValue();
+          currentHtml       = this.composer.getValue(false, false);
 
       if (currentHtml === previousHtml) {
         return;
@@ -11692,11 +11807,10 @@ wysihtml5.views.View = Base.extend(
       this.element.innerHTML = browser.displaysCaretInEmptyContentEditableCorrectly() ? "" : this.CARET_HACK;
     },
 
-    getValue: function(parse) {
+    getValue: function(parse, clearInternals) {
       var value = this.isEmpty() ? "" : wysihtml5.quirks.getCorrectInnerHTML(this.element);
-
-      if (parse) {
-        value = this.parent.parse(value);
+      if (parse !== false) {
+        value = this.parent.parse(value, (clearInternals === false) ? false : true);
       }
 
       return value;
@@ -11776,7 +11890,8 @@ wysihtml5.views.View = Base.extend(
 
     isEmpty: function() {
       var innerHTML = this.element.innerHTML.toLowerCase();
-      return innerHTML === ""            ||
+      return (/^(\s|<br>|<\/br>|<p>|<\/p>)*$/i).test(innerHTML)  ||
+             innerHTML === ""            ||
              innerHTML === "<br>"        ||
              innerHTML === "<p></p>"     ||
              innerHTML === "<p><br></p>" ||
@@ -11833,7 +11948,7 @@ wysihtml5.views.View = Base.extend(
       this.element            = (this.config.contentEditableMode) ? this.sandbox.getContentEditable() : this.doc.body;
       if (!this.config.noTextarea) {
           this.textarea           = this.parent.textarea;
-          this.element.innerHTML  = this.textarea.getValue(true);
+          this.element.innerHTML  = this.textarea.getValue(true, false);
       } else {
           this.cleanUp(); // cleans contenteditable on initiation as it may contain html
       }
@@ -12385,17 +12500,37 @@ wysihtml5.views.View = Base.extend(
       } else if (selection.caretIsInTheBeginnig()) {
         event.preventDefault();
       } else {
-        var beforeUneditable = selection.caretIsBeforeUneditable();
 
+        if (selection.caretIsFirstInSelection() &&
+            selection.getPreviousNode() &&
+            selection.getPreviousNode().nodeName &&
+            (/^H\d$/gi).test(selection.getPreviousNode().nodeName)
+        ) {
+          var prevNode = selection.getPreviousNode();
+          event.preventDefault();
+          if ((/^\s*$/).test(prevNode.textContent || prevNode.innerText)) {
+            // heading is empty
+            prevNode.parentNode.removeChild(prevNode);
+          } else {
+            var range = prevNode.ownerDocument.createRange();
+            range.selectNodeContents(prevNode);
+            range.collapse(false);
+            selection.setSelection(range);
+          }
+        }
+
+        var beforeUneditable = selection.caretIsBeforeUneditable();
         // Do a special delete if caret would delete uneditable
         if (beforeUneditable) {
           event.preventDefault();
           deleteAroundEditable(selection, beforeUneditable, element);
         }
       }
-    } else if (selection.containsUneditable()) {
-      event.preventDefault();
-      selection.deleteContents();
+    } else {
+      if (selection.containsUneditable()) {
+        event.preventDefault();
+        selection.deleteContents();
+      }
     }
   };
 
@@ -12412,7 +12547,7 @@ wysihtml5.views.View = Base.extend(
 
   wysihtml5.views.Composer.prototype.observe = function() {
     var that                = this,
-        state               = this.getValue(),
+        state               = this.getValue(false, false),
         container           = (this.sandbox.getIframe) ? this.sandbox.getIframe() : this.sandbox.getContentEditable(),
         element             = this.element,
         focusBlurElement    = (browser.supportsEventsInIframeCorrectly() || this.sandbox.getContentEditable) ? element : this.sandbox.getWindow(),
@@ -12460,11 +12595,11 @@ wysihtml5.views.View = Base.extend(
 
       // Delay storing of state until all focus handler are fired
       // especially the one which resets the placeholder
-      setTimeout(function() { state = that.getValue(); }, 0);
+      setTimeout(function() { state = that.getValue(false, false); }, 0);
     });
 
     dom.observe(focusBlurElement, "blur", function() {
-      if (state !== that.getValue()) {
+      if (state !== that.getValue(false, false)) {
         that.parent.fire("change").fire("change:composer");
       }
       that.parent.fire("blur").fire("blur:composer");
@@ -12641,7 +12776,7 @@ wysihtml5.views.View = Base.extend(
      * @param {Boolean} shouldParseHtml Whether the html should be sanitized before inserting it into the textarea
      */
     fromComposerToTextarea: function(shouldParseHtml) {
-      this.textarea.setValue(wysihtml5.lang.string(this.composer.getValue()).trim(), shouldParseHtml);
+      this.textarea.setValue(wysihtml5.lang.string(this.composer.getValue(false, false)).trim(), shouldParseHtml);
     },
 
     /**
@@ -12650,7 +12785,7 @@ wysihtml5.views.View = Base.extend(
      * @param {Boolean} shouldParseHtml Whether the html should be sanitized before inserting it into the composer
      */
     fromTextareaToComposer: function(shouldParseHtml) {
-      var textareaValue = this.textarea.getValue();
+      var textareaValue = this.textarea.getValue(false, false);
       if (textareaValue) {
         this.composer.setValue(textareaValue, shouldParseHtml);
       } else {
@@ -12731,7 +12866,7 @@ wysihtml5.views.View = Base.extend(
 
   getValue: function(parse) {
     var value = this.isEmpty() ? "" : this.element.value;
-    if (parse) {
+    if (parse !== false) {
       value = this.parent.parse(value);
     }
     return value;
@@ -12916,8 +13051,8 @@ wysihtml5.views.View = Base.extend(
       return this;
     },
 
-    getValue: function(parse) {
-      return this.currentView.getValue(parse);
+    getValue: function(parse, clearInternals) {
+      return this.currentView.getValue(parse, clearInternals);
     },
 
     setValue: function(html, parse) {
@@ -12964,13 +13099,14 @@ wysihtml5.views.View = Base.extend(
       return this.currentView.hasPlaceholderSet();
     },
 
-    parse: function(htmlOrElement) {
-      var parseContext = (this.config.contentEditableMode) ? document : this.composer.sandbox.getDocument();
+    parse: function(htmlOrElement, clearInternals) {
+      var parseContext = (this.config.contentEditableMode) ? document : ((this.composer) ? this.composer.sandbox.getDocument() : null);
       var returnValue = this.config.parser(htmlOrElement, {
         "rules": this.config.parserRules,
         "cleanUp": this.config.cleanUp,
         "context": parseContext,
-        "uneditableClass": this.config.uneditableContainerClassname
+        "uneditableClass": this.config.uneditableContainerClassname,
+        "clearInternals" : clearInternals
       });
       if (typeof(htmlOrElement) === "object") {
         wysihtml5.quirks.redraw(htmlOrElement);

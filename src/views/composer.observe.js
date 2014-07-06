@@ -60,17 +60,37 @@
       } else if (selection.caretIsInTheBeginnig()) {
         event.preventDefault();
       } else {
-        var beforeUneditable = selection.caretIsBeforeUneditable();
 
+        if (selection.caretIsFirstInSelection() &&
+            selection.getPreviousNode() &&
+            selection.getPreviousNode().nodeName &&
+            (/^H\d$/gi).test(selection.getPreviousNode().nodeName)
+        ) {
+          var prevNode = selection.getPreviousNode();
+          event.preventDefault();
+          if ((/^\s*$/).test(prevNode.textContent || prevNode.innerText)) {
+            // heading is empty
+            prevNode.parentNode.removeChild(prevNode);
+          } else {
+            var range = prevNode.ownerDocument.createRange();
+            range.selectNodeContents(prevNode);
+            range.collapse(false);
+            selection.setSelection(range);
+          }
+        }
+
+        var beforeUneditable = selection.caretIsBeforeUneditable();
         // Do a special delete if caret would delete uneditable
         if (beforeUneditable) {
           event.preventDefault();
           deleteAroundEditable(selection, beforeUneditable, element);
         }
       }
-    } else if (selection.containsUneditable()) {
-      event.preventDefault();
-      selection.deleteContents();
+    } else {
+      if (selection.containsUneditable()) {
+        event.preventDefault();
+        selection.deleteContents();
+      }
     }
   };
 
@@ -87,7 +107,7 @@
 
   wysihtml5.views.Composer.prototype.observe = function() {
     var that                = this,
-        state               = this.getValue(),
+        state               = this.getValue(false, false),
         container           = (this.sandbox.getIframe) ? this.sandbox.getIframe() : this.sandbox.getContentEditable(),
         element             = this.element,
         focusBlurElement    = (browser.supportsEventsInIframeCorrectly() || this.sandbox.getContentEditable) ? element : this.sandbox.getWindow(),
@@ -135,11 +155,11 @@
 
       // Delay storing of state until all focus handler are fired
       // especially the one which resets the placeholder
-      setTimeout(function() { state = that.getValue(); }, 0);
+      setTimeout(function() { state = that.getValue(false, false); }, 0);
     });
 
     dom.observe(focusBlurElement, "blur", function() {
-      if (state !== that.getValue()) {
+      if (state !== that.getValue(false, false)) {
         that.parent.fire("change").fire("change:composer");
       }
       that.parent.fire("blur").fire("blur:composer");

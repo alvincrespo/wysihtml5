@@ -27,11 +27,10 @@
       this.element.innerHTML = browser.displaysCaretInEmptyContentEditableCorrectly() ? "" : this.CARET_HACK;
     },
 
-    getValue: function(parse) {
+    getValue: function(parse, clearInternals) {
       var value = this.isEmpty() ? "" : wysihtml5.quirks.getCorrectInnerHTML(this.element);
-
-      if (parse) {
-        value = this.parent.parse(value);
+      if (parse !== false) {
+        value = this.parent.parse(value, (clearInternals === false) ? false : true);
       }
 
       return value;
@@ -111,7 +110,8 @@
 
     isEmpty: function() {
       var innerHTML = this.element.innerHTML.toLowerCase();
-      return innerHTML === ""            ||
+      return (/^(\s|<br>|<\/br>|<p>|<\/p>)*$/i).test(innerHTML)  ||
+             innerHTML === ""            ||
              innerHTML === "<br>"        ||
              innerHTML === "<p></p>"     ||
              innerHTML === "<p><br></p>" ||
@@ -168,7 +168,7 @@
       this.element            = (this.config.contentEditableMode) ? this.sandbox.getContentEditable() : this.doc.body;
       if (!this.config.noTextarea) {
           this.textarea           = this.parent.textarea;
-          this.element.innerHTML  = this.textarea.getValue(true);
+          this.element.innerHTML  = this.textarea.getValue(true, false);
       } else {
           this.cleanUp(); // cleans contenteditable on initiation as it may contain html
       }

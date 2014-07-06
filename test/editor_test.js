@@ -211,16 +211,16 @@ if (wysihtml5.browser.supported()) {
         ok(true, "'custom_event' correctly fired");
       });
       
-      QUnit.triggerEvent(composerElement, "focus");
+      happen.once(composerElement, {type: "focus"});
       editor.stopObserving("focus");
       
       // Modify innerHTML in order to force 'change' event to trigger onblur
       composerElement.innerHTML = "foobar";
-      QUnit.triggerEvent(composerElement, "blur");
-      QUnit.triggerEvent(composerElement, "focusout");
+      happen.once(composerElement, {type: "blur"});
+      happen.once(composerElement, {type: "focusout"});
       equal(wysihtml5.dom.getStyle("margin-top").from(iframeElement), "5px", ":focus styles are correctly unset");
-      QUnit.triggerEvent(composerElement, "paste");
-      QUnit.triggerEvent(composerElement, "drop");
+      happen.once(composerElement, {type: "paste"});
+      happen.once(composerElement, {type: "drop"});
       
       editor.fire("custom_event");
       
@@ -275,7 +275,7 @@ if (wysihtml5.browser.supported()) {
         equal(composerElement.innerHTML.toLowerCase(), "hey <strong>richard!</strong>", "Textarea sanitized and copied over it's value to the editor after switch");
         
         composerElement.innerHTML = "<i>hey </i><strong>timmay!</strong>";
-        QUnit.triggerEvent(that.form, "submit");
+        happen.once(that.form, {type: "submit"});
         equal(that.textareaElement.value.toLowerCase(), "hey <strong>timmay!</strong>", "Textarea gets the sanitized content of the editor onsubmit");
         
         setTimeout(function() {
@@ -369,8 +369,8 @@ if (wysihtml5.browser.supported()) {
       equal(composerElement.innerHTML.toLowerCase(), html, "Editor content correctly set after calling 'setValue'");
       ok(!editor.isEmpty(), "'isEmpty' returns correct value when the composer element isn't actually empty");
       
-      var value = editor.getValue();
-      equal(value.toLowerCase(), html, "Editor content correctly returned after calling 'getValue'");
+      var value = editor.getValue(false, false);
+      equal(value.toLowerCase(), html, "Editor content correctly returned after calling 'getValue(false, false)'");
       
       editor.clear();
       value = editor.getValue();
@@ -415,7 +415,7 @@ if (wysihtml5.browser.supported()) {
       equal(editor.config.parserRules, parserRules, "Parser rules correctly set on config object");
       // Invoke parsing via second parameter of setValue()
       editor.setValue(input, true);
-      equal(editor.getValue().toLowerCase(), output, "HTML got correctly parsed within setValue()");
+      equal(editor.getValue(false, false).toLowerCase(), output, "HTML got correctly parsed within setValue()");
       start();
     });
   });
@@ -428,7 +428,6 @@ if (wysihtml5.browser.supported()) {
         parserRules = { script: undefined },
         input       = this.textareaElement.value,
         output      = input;
-    
     var editor = new wysihtml5.Editor(this.textareaElement, {
       parserRules: parserRules,
       parser:      function(html, config) {
@@ -445,7 +444,7 @@ if (wysihtml5.browser.supported()) {
       
       // Invoke parsing via second parameter of setValue()
       editor.setValue(input, true);
-      equal(editor.getValue().toLowerCase(), output, "HTML got correctly parsed within setValue()");
+      equal(editor.getValue(false, false).toLowerCase(), output, "HTML got correctly parsed within setValue()");
       
       start();
     });
@@ -465,10 +464,10 @@ if (wysihtml5.browser.supported()) {
       composerElement.innerHTML = html;
       
       // Fire events that could cause a change in the composer
-      QUnit.triggerEvent(composerElement, "keypress");
-      QUnit.triggerEvent(composerElement, "keyup");
-      QUnit.triggerEvent(composerElement, "cut");
-      QUnit.triggerEvent(composerElement, "blur");
+      happen.once(composerElement, {type: "keypress"});
+      happen.once(composerElement, {type: "keyup"});
+      happen.once(composerElement, {type: "cut"});
+      happen.once(composerElement, {type: "blur"});
       
       setTimeout(function() {
         equal(composerElement.innerHTML.toLowerCase(), html, "Composer still has correct content");
