@@ -123,8 +123,8 @@ wysihtml5.dom.parse = (function() {
     var oldNodeType     = oldNode.nodeType,
         oldChilds       = oldNode.childNodes,
         oldChildsLength = oldChilds.length,
-        method          = NODE_TYPE_MAPPING[oldNodeType],
         i               = 0,
+        method,
         fragment,
         newNode,
         newChild;
@@ -133,6 +133,13 @@ wysihtml5.dom.parse = (function() {
     if (uneditableClass && oldNodeType === 1 && wysihtml5.dom.hasClass(oldNode, uneditableClass)) {
         return oldNode;
     }
+
+    if (oldNodeType === 8) {
+      oldNodeType = 1;
+    }
+
+    method = NODE_TYPE_MAPPING[oldNodeType];
+
 
     newNode = method && method(oldNode, clearInternals);
 
@@ -257,19 +264,30 @@ wysihtml5.dom.parse = (function() {
       }
     }
 
+    if (nodeName === "#comment") {
+      nodeName = "comment";
+    }
+
     if (nodeName in tagRules) {
       rule = tagRules[nodeName];
-      if (!rule || rule.remove) {
+      if (!rule || rule.remove === 1) {
         return null;
       } else if (rule.unwrap) {
         return false;
       }
       rule = typeof(rule) === "string" ? { rename_tag: rule } : rule;
     } else if (oldNode.firstChild) {
+      if (oldNode.firstChild.nodeType === 8 && currentRules.keepComments) {
+        return oldNode;
+      }
       rule = { rename_tag: DEFAULT_NODE_NAME };
     } else {
       // Remove empty unknown elements
       return null;
+    }
+
+    if (nodeName === "comment") {
+      return oldNode;
     }
 
     newNode = oldNode.ownerDocument.createElement(rule.rename_tag || nodeName);
