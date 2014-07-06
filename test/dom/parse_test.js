@@ -824,4 +824,21 @@ if (wysihtml5.browser.supported()) {
     this.equal(this.sanitize(tester, rules).innerHTML, input5 , "DIV with dimensions and in dom is kept");
 
   });
+
+  test("Anchors keep style when styles are defined", function(){
+    var rules = {
+      tags: {
+        a: {
+          check_attributes: {
+            href: "href",
+            style: "any"
+          }
+        }
+      }
+    };
+
+    var anchor = '<a href="http://google.com" style="background-color:#556270;background-image:url(http://i.imgur.com/0xPEf.gif);border:1px solid #1e3650;border-radius:4px;color:#ffffff;display:inline-block;font-family:sans-serif;font-size:13px;font-weight:bold;line-height:40px;text-align:center;text-decoration:none;width:200px;-webkit-text-size-adjust:none;mso-hide:all;">Show me the button!</a>';
+
+    this.equal(this.sanitize(anchor, rules), anchor, "Anchor keeps style :: " + this.sanitize(anchor, rules));
+  });
 }
