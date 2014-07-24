@@ -80,10 +80,15 @@ wysihtml5.dom.parse = (function() {
     var context       = config.context || elementOrHtml.ownerDocument || document,
         fragment      = context.createDocumentFragment(),
         isString      = typeof(elementOrHtml) === "string",
+        isAscii       = isString ? elementOrHtml.indexOf('&') === 0 : false,
         clearInternals = false,
         element,
         newNode,
         firstChild;
+
+    if (isAscii) {
+      return elementOrHtml;
+    }
 
     if (config.clearInternals === true) {
       clearInternals = true;

@@ -900,6 +900,13 @@ if (wysihtml5.browser.supported()) {
     this.equal(this.sanitize(html, rules), html, "Rel attribute does not get set");
   });
 
+  test("Keeps encoded ascii", function(){
+    var html = '&copy;';
+    var rules = {};
+    
+    QUnit.assert.equal(this.sanitize(html, rules), html, "Encoded ascii sticks");
+  });
+
   // TODO: get_as_dom (line 56 and 57) - wrapping <html> in a <div> removes the <html> and <body> elements
   //test("Allows the html element", function(){
     //var html = '<html><body></body></html>';
