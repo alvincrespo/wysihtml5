@@ -899,4 +899,19 @@ if (wysihtml5.browser.supported()) {
 
     this.equal(this.sanitize(html, rules), html, "Rel attribute does not get set");
   });
+
+  // TODO: get_as_dom (line 56 and 57) - wrapping <html> in a <div> removes the <html> and <body> elements
+  //test("Allows the html element", function(){
+    //var html = '<html><body></body></html>';
+    //var rules = {
+      //html: {
+        //remove: 0,
+        //rename_tag: ""
+      //}
+    //};
+
+    //var result = this.sanitize(html, rules);
+
+    //QUnit.assert.equal(result.outerHTML, html, "Keeps the html and body");
+  //});
 }
