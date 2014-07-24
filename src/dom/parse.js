@@ -440,6 +440,14 @@ wysihtml5.dom.parse = (function() {
         newAttributeValue,
         method;
 
+    for(var attribute in setAttributes) {
+      if (setAttributes.hasOwnProperty(attribute)) {
+        if(setAttributes[attribute] === false) {
+          delete setAttributes[attribute];
+        }
+      }
+    }
+
     if (setAttributes) {
       attributes = wysihtml5.lang.object(setAttributes).clone();
     }

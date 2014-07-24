@@ -876,4 +876,22 @@ if (wysihtml5.browser.supported()) {
 
     this.equal(this.sanitize(html, rules), html, "Center stays");
   });
+
+  test("Does not set attribute if defined as false", function(){
+    var html = '<a href="http://google.com">Some Stuff!</a>';
+    var rules = {
+      tags: {
+        a: {
+          check_attributes: {
+            href: "url"
+          },
+          set_attributes: {
+            rel: false
+          }
+        }
+      }
+    };
+
+    this.equal(this.sanitize(html, rules), html, "Rel attribute does not get set");
+  });
 }
