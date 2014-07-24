@@ -6175,6 +6175,14 @@ wysihtml5.dom.parse = (function() {
         newAttributeValue,
         method;
 
+    for(var attribute in setAttributes) {
+      if (setAttributes.hasOwnProperty(attribute)) {
+        if(setAttributes[attribute] === false) {
+          delete setAttributes[attribute];
+        }
+      }
+    }
+
     if (setAttributes) {
       attributes = wysihtml5.lang.object(setAttributes).clone();
     }
@@ -6434,7 +6442,7 @@ wysihtml5.dom.parse = (function() {
 
         // if there is no matched url, add http:// by default
         if(!matchedURL){
-          newURL = "http://" + attributeValue;
+          newURL = attributeValue;
         }
 
         // Ensure that the URL is lowercase
