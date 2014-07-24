@@ -863,4 +863,17 @@ if (wysihtml5.browser.supported()) {
 
     this.equal(this.sanitize(comment, rules), comment, "Comment stays");
   });
+
+  test("Allows center tag", function(){
+    var html = '<center>There is content here</center>';
+    var rules = {
+      tags: {
+        center: {
+          remove: 0
+        }
+     }
+   };
+
+    this.equal(this.sanitize(html, rules), html, "Center stays");
+  });
 }
