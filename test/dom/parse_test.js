@@ -190,7 +190,9 @@ if (wysihtml5.browser.supported()) {
     var rules = {
       tags: {
         a: {
-          check_attributes: { href: "liquidURL" }
+          check_attributes: {
+            href: "liquidURL"
+          }
         }
       }
     };
@@ -201,7 +203,7 @@ if (wysihtml5.browser.supported()) {
     this.equal(result, '<a href="{{model.url}}"></a>', 'Allows URL: <a href="{{model.url}}"></a>');
 
     result = this.sanitize('<a href="google.com"></a>', rules);
-    this.equal(result, '<a href="http://google.com"></a>', 'Allows URL: <a href="http://google.com"></a>');
+    this.equal(result, '<a href="google.com"></a>', 'Allows URL: <a href="http://google.com"></a>');
 
     result = this.sanitize('<a href="http://subdomain.google.com"></a>', rules);
     this.equal(result, '<a href="http://subdomain.google.com"></a>', 'Allows URL: <a href="http://subdomain.google.com"></a>');
@@ -211,6 +213,9 @@ if (wysihtml5.browser.supported()) {
 
     result = this.sanitize('<a href="{% if model.url %}{{ model.url }}{% else %}http://google.com/{% end %}"></a>', rules);
     this.equal(result, '<a href="{% if model.url %}{{ model.url }}{% else %}http://google.com/{% end %}"></a>', 'Allows URL: <a href="{% if model.url %}{{ model.url }}{% else %}http://google.com/{% end %}"></a>');
+
+    result = this.sanitize('<a href="mailto:some@example.com>Email Me</a>', rules);
+    this.equal(result, '<a href="mailto:some@example.com>Email Me</a>');
   });
 
   test("Bug in IE8 where invalid html causes duplicated content", function() {

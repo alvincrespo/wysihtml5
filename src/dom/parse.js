@@ -707,7 +707,7 @@ wysihtml5.dom.parse = (function() {
 
         // if there is no matched url, add http:// by default
         if(!matchedURL){
-          newURL = "http://" + attributeValue;
+          newURL = attributeValue;
         }
 
         // Ensure that the URL is lowercase
