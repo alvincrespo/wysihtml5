@@ -903,8 +903,15 @@ if (wysihtml5.browser.supported()) {
   test("Keeps encoded ascii", function(){
     var html = '&copy;';
     var rules = {};
-    
+
     QUnit.assert.equal(this.sanitize(html, rules), html, "Encoded ascii sticks");
+  });
+
+  test("Transforms rendered ascii to html ascii code", function(){
+    var html = '©';
+    var rules = {};
+
+    QUnit.assert.equal(this.sanitize(html, rules), '&copy;', "HTML ascii sticks");
   });
 
   // TODO: get_as_dom (line 56 and 57) - wrapping <html> in a <div> removes the <html> and <body> elements
