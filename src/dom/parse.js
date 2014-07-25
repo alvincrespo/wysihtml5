@@ -632,28 +632,12 @@ wysihtml5.dom.parse = (function() {
   }
 
   function entityToHtml(string) {
-    for (var i in entity_table) {
-        if (i != 38) {
-            entity = entity_table[i]
-            character = String.fromCharCode(i);
+    character = String.fromCharCode(169);
+    regEx = new RegExp(character);
 
-            string = string.replace(/[\u00A0-\u9999<>\&]/gim, function(item) {
-               if (item === ">" || item === "<") {
-                return item;
-               }
-
-               if (item === "&") {
-                return item;
-               }
-
-               return '&#' + item.charCodeAt(0) + ';' ;
-            });
-
-            regex = new RegExp("&#" + i + ";")
-
-            string = string.replace(regex, entity);
-        }
-    }
+    string = string.replace(regEx, function(item) {
+       return '&copy;';
+    });
 
     return string;
   }
