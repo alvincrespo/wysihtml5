@@ -914,18 +914,17 @@ if (wysihtml5.browser.supported()) {
     QUnit.assert.equal(this.sanitize(html, rules), '&copy;', "HTML ascii sticks");
   });
 
-  // TODO: get_as_dom (line 56 and 57) - wrapping <html> in a <div> removes the <html> and <body> elements
-  //test("Allows the html element", function(){
-    //var html = '<html><body></body></html>';
-    //var rules = {
-      //html: {
-        //remove: 0,
-        //rename_tag: ""
-      //}
-    //};
+  test("Does not encode liquid parsing logic", function() {
+    var html = "Hey {% if customer.Nachname.size > 0 %} Hallo {{ customer.Anrede }} {{ customer.Nachname }} {% else %}Liebes Team von {{ customer.Firma }} {% endif %}, <p>How's it going?</p>";
+    var rules = {
+      tags: {
+        p: {}
+      }
+    };
 
-    //var result = this.sanitize(html, rules);
+    var sanitized = this.sanitize(html, rules);
 
-    //QUnit.assert.equal(result.outerHTML, html, "Keeps the html and body");
-  //});
+    QUnit.assert.equal(sanitized, html, "Liquid logic does not get encoded");
+  });
+
 }

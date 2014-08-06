@@ -8549,6 +8549,22 @@ wysihtml5.quirks.ensureProperClearing = (function() {
   var TILDE_ESCAPED = "%7E";
   wysihtml5.quirks.getCorrectInnerHTML = function(element) {
     var innerHTML = element.innerHTML;
+
+    innerHTML.replace(/&amp;/, function(){
+      return String.fromCharCode(38);
+    });
+
+
+    innerHTML = innerHTML.replace(/&gt;/, String.fromCharCode(62));
+    innerHTML = innerHTML.replace(/&lt;/, String.fromCharCode(60));        
+
+    // Get all liquid instances
+    // var matchedLiquid = innerHTML.match(/({{.*?}}|{%.*?%})/g);
+    // if (matchedLiquid) {
+    //   for(var i = 0; i < matchedLiquid.length - 1; i++) {
+    //   }
+    // }
+
     if (innerHTML.indexOf(TILDE_ESCAPED) === -1) {
       return innerHTML;
     }
