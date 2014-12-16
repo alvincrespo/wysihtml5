@@ -185,38 +185,6 @@ if (wysihtml5.browser.supported()) {
     );
   });
 
-  test("Attribute check of 'liquidURL' cleans up", function() {
-    var rules = {
-      tags: {
-        a: {
-          check_attributes: {
-            href: "liquidURL"
-          }
-        }
-      }
-    };
-    var sanitize = this.sanitize;
-    var result;
-
-    result = this.sanitize('<a href="{{model.url}}"></a>', rules);
-    this.equal(result, '<a href="{{model.url}}"></a>', 'Allows URL: <a href="{{model.url}}"></a>');
-
-    result = this.sanitize('<a href="google.com"></a>', rules);
-    this.equal(result, '<a href="google.com"></a>', 'Allows URL: <a href="http://google.com"></a>');
-
-    result = this.sanitize('<a href="http://subdomain.google.com"></a>', rules);
-    this.equal(result, '<a href="http://subdomain.google.com"></a>', 'Allows URL: <a href="http://subdomain.google.com"></a>');
-
-    result = this.sanitize('<a href="http://google.com/user/{{model.id}}"></a>', rules);
-    this.equal(result, '<a href="http://google.com/user/{{model.id}}"></a>', 'Allows URL: <a href="http://google.com/user/{{model.id}}"></a>');
-
-    result = this.sanitize('<a href="{% if model.url %}{{ model.url }}{% else %}http://google.com/{% end %}"></a>', rules);
-    this.equal(result, '<a href="{% if model.url %}{{ model.url }}{% else %}http://google.com/{% end %}"></a>', 'Allows URL: <a href="{% if model.url %}{{ model.url }}{% else %}http://google.com/{% end %}"></a>');
-
-    result = this.sanitize('<a href="mailto:some@example.com>Email Me</a>', rules);
-    this.equal(result, '<a href="mailto:some@example.com>Email Me</a>');
-  });
-
   test("Bug in IE8 where invalid html causes duplicated content", function() {
     var rules = {
       tags: { p: true, span: true, div: true }
@@ -863,101 +831,12 @@ if (wysihtml5.browser.supported()) {
 
   });
 
-  test("Anchors keep style when styles are defined", function(){
+  test("Test keeping comments ", function() {
     var rules = {
-      tags: {
-        a: {
-          check_attributes: {
-            href: "href",
-            style: "any"
-          }
-        }
-      }
-    };
-
-    var anchor = '<a href="http://google.com" style="background-color:#556270;background-image:url(http://i.imgur.com/0xPEf.gif);border:1px solid #1e3650;border-radius:4px;color:#ffffff;display:inline-block;font-family:sans-serif;font-size:13px;font-weight:bold;line-height:40px;text-align:center;text-decoration:none;width:200px;-webkit-text-size-adjust:none;mso-hide:all;">Show me the button!</a>';
-
-    this.equal(this.sanitize(anchor, rules), anchor, "Anchor keeps style :: " + this.sanitize(anchor, rules));
-  });
-
-  test("Keeps comments", function(){
-    var comment = '<div>' +
-                    '<!--[if mso]>' +
-                    '<v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="http://google.com" style="height:40px;v-text-anchor:middle;width:200px;" arcsize="10%" strokecolor="#1e3650" fill="t">' +
-                    ' <v:fill type="tile" src="http://i.imgur.com/0xPEf.gif" color="#556270" />' +
-                    '  <w:anchorlock/>' +
-                    '  <center style="color:#ffffff;font-family:sans-serif;font-size:13px;font-weight:bold;">Show me the button!</center>' +
-                    '</v:roundrect>' +
-                    '<![endif]-->' +
-                  '</div>';
-    var rules = {
-      keepComments: true,
-      tags: {
-        comment: {
-          remove: 0
-        }
-      }
-    }
-
-    this.equal(this.sanitize(comment, rules), comment, "Comment stays");
-  });
-
-  test("Allows center tag", function(){
-    var html = '<center>There is content here</center>';
-    var rules = {
-      tags: {
-        center: {
-          remove: 0
-        }
-     }
-   };
-
-    this.equal(this.sanitize(html, rules), html, "Center stays");
-  });
-
-  test("Does not set attribute if defined as false", function(){
-    var html = '<a href="http://google.com">Some Stuff!</a>';
-    var rules = {
-      tags: {
-        a: {
-          check_attributes: {
-            href: "url"
-          },
-          set_attributes: {
-            rel: false
-          }
-        }
-      }
-    };
-
-    this.equal(this.sanitize(html, rules), html, "Rel attribute does not get set");
-  });
-
-  test("Keeps encoded ascii", function(){
-    var html = '&copy;';
-    var rules = {};
-
-    QUnit.assert.equal(this.sanitize(html, rules), html, "Encoded ascii sticks");
-  });
-
-  test("Transforms rendered ascii to html ascii code", function(){
-    var html = '©';
-    var rules = {};
-
-    QUnit.assert.equal(this.sanitize(html, rules), '&copy;', "HTML ascii sticks");
-  });
-
-  test("Does not encode liquid parsing logic", function() {
-    var html = "Hey {% if customer.Nachname.size > 0 %} Hallo {{ customer.Anrede }} {{ customer.Nachname }} {% else %}Liebes Team von {{ customer.Firma }} {% endif %}, <p>How's it going?</p>";
-    var rules = {
-      tags: {
-        p: {}
-      }
-    };
-
-    var sanitized = this.sanitize(html, rules);
-
-    QUnit.assert.equal(sanitized, html, "Liquid logic does not get encoded");
+      "comments": 1
+    },
+    input = 'Test <!-- some comment -->';
+    this.equal(this.sanitize(input, rules), input, "Comments are kept if configured to keep");
   });
 
   test("Test global valid attributes for all elements ", function() {
@@ -1021,4 +900,134 @@ if (wysihtml5.browser.supported()) {
 
 
   });
+
+  test("CIO :: Keeps complicated comments", function(){
+    var comment = '<!--[if mso]>' +
+    '<v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="http://google.com" style="height:40px;v-text-anchor:middle;width:200px;" arcsize="10%" strokecolor="#1e3650" fill="t">' +
+    ' <v:fill type="tile" src="http://i.imgur.com/0xPEf.gif" color="#556270" />' +
+    '  <w:anchorlock/>' +
+    '  <center style="color:#ffffff;font-family:sans-serif;font-size:13px;font-weight:bold;">Show me the button!</center>' +
+    '</v:roundrect>' +
+    '<![endif]-->';
+    var rules = {
+      "comments": 1
+    }
+
+    this.equal(this.sanitize(comment, rules), comment, "Comment stays");
+  });
+
+  test("CIO :: Attribute check of 'liquidURL' cleans up", function() {
+    var rules = {
+      tags: {
+        a: {
+          check_attributes: {
+            href: "liquidURL"
+          }
+        }
+      }
+    };
+    var sanitize = this.sanitize;
+    var result;
+
+    result = this.sanitize('<a href="{{model.url}}"></a>', rules);
+    this.equal(result, '<a href="{{model.url}}"></a>', 'Allows URL: <a href="{{model.url}}"></a>');
+
+    result = this.sanitize('<a href="google.com"></a>', rules);
+    this.equal(result, '<a href="google.com"></a>', 'Allows URL: <a href="http://google.com"></a>');
+
+    result = this.sanitize('<a href="http://subdomain.google.com"></a>', rules);
+    this.equal(result, '<a href="http://subdomain.google.com"></a>', 'Allows URL: <a href="http://subdomain.google.com"></a>');
+
+    result = this.sanitize('<a href="http://google.com/user/{{model.id}}"></a>', rules);
+    this.equal(result, '<a href="http://google.com/user/{{model.id}}"></a>', 'Allows URL: <a href="http://google.com/user/{{model.id}}"></a>');
+
+    result = this.sanitize('<a href="{% if model.url %}{{ model.url }}{% else %}http://google.com/{% end %}"></a>', rules);
+    this.equal(result, '<a href="{% if model.url %}{{ model.url }}{% else %}http://google.com/{% end %}"></a>', 'Allows URL: <a href="{% if model.url %}{{ model.url }}{% else %}http://google.com/{% end %}"></a>');
+
+    result = this.sanitize('<a href="mailto:some@example.com>Email Me</a>', rules);
+    this.equal(result, '<a href="mailto:some@example.com>Email Me</a>');
+  });
+
+  test("CIO :: Does not encode liquid parsing logic", function() {
+    var html = "Hey {% if customer.Nachname.size > 0 %} Hallo {{ customer.Anrede }} {{ customer.Nachname }} {% else %}Liebes Team von {{ customer.Firma }} {% endif %}, <p>How's it going?</p>";
+    var rules = {
+      tags: {
+        p: {}
+      }
+    };
+
+    var sanitized = this.sanitize(html, rules);
+
+    QUnit.assert.equal(sanitized, html, "Liquid logic does not get encoded");
+  });
+
+  test("CIO :: Allows center tag", function(){
+    var html = '<center>There is content here</center>';
+    var rules = {
+      tags: {
+        center: {
+          remove: 0
+        }
+      }
+    };
+
+    this.equal(this.sanitize(html, rules), html, "Center stays");
+  });
+
+  test("CIO :: Does not set attribute if defined as false", function(){
+    var html = '<a href="http://google.com">Some Stuff!</a>';
+    var rules = {
+      tags: {
+        a: {
+          check_attributes: {
+            href: "url"
+          },
+          set_attributes: {
+            rel: false
+          }
+        }
+      }
+    };
+
+    this.equal(this.sanitize(html, rules), html, "Rel attribute does not get set");
+  });
+
+  test("CIO :: Anchors keep style when styles are defined", function(){
+    var rules = {
+      tags: {
+        a: {
+          check_attributes: {
+            href: "href",
+            style: "any"
+          }
+        }
+      }
+    };
+
+    var anchor = '<a href="http://google.com" style="background-color:#556270;background-image:url(http://i.imgur.com/0xPEf.gif);border:1px solid #1e3650;border-radius:4px;color:#ffffff;display:inline-block;font-family:sans-serif;font-size:13px;font-weight:bold;line-height:40px;text-align:center;text-decoration:none;width:200px;-webkit-text-size-adjust:none;mso-hide:all;">Show me the button!</a>';
+
+    this.equal(this.sanitize(anchor, rules), anchor, "Anchor keeps style :: " + this.sanitize(anchor, rules));
+  });
+
+  test("CIO :: Keeps encoded ascii", function(){
+    var html = '&copy;';
+    var rules = {};
+
+    QUnit.assert.equal(this.sanitize(html, rules), html, "Encoded ascii sticks");
+  });
+
+  test("CIO :: Transforms rendered ascii to html ascii code", function(){
+    var html = '©';
+    var rules = {};
+
+    QUnit.assert.equal(this.sanitize(html, rules), '&copy;', "HTML ascii sticks");
+  });
+
+  test("CIO :: Keeps decoded ascii < and >", function() {
+      var html = 'Last week I made > $200!!!';
+      var rules = {};
+
+      QUnit.assert.equal(this.sanitize(html, rules), html, "HTML < and > sticks");
+    });
+
 }
