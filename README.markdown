@@ -1,6 +1,6 @@
-# wysihtml5x
+# wysihtml
 
-wysihtml5x is an extended and less strict approach on xing/wysihtml5 open source rich text editor based on HTML5 technology.
+wysihtml is an extended and less strict approach on xing/wysihtml5 open source rich text editor based on HTML5 technology.
 The code is completely library agnostic: No jQuery, Prototype or similar is required.
 
 This project was initiated and is supported by the [XING AG](https://www.xing.com). Thanks!
@@ -63,4 +63,4 @@ This builds both minified and development versions, including one with toolbar s
 
 ## Contributors
 
-See the [list of contributors here](https://github.com/Edicy/wysihtml5/graphs/contributors).
+See the [list of contributors here](https://github.com/Voog/wysihtml/graphs/contributors).

@@ -48,10 +48,12 @@
     handleTables:         true,
     // Tab key inserts tab into text as default behaviour. It can be disabled to regain keyboard navigation
     handleTabKey:         true,
-    // Object which includes parser rules to apply when html gets inserted via copy & paste
+    // Object which includes parser rules to apply when html gets cleaned
     // See parser_rules/*.js for examples
     parserRules:          { tags: { br: {}, span: {}, div: {}, p: {} }, classes: {} },
-    // Parser method to use when the user inserts content via copy & paste
+    // Object which includes parser when the user inserts content via copy & paste. If null parserRules will be used instead
+    pasteParserRulesets: null,
+    // Parser method to use when the user inserts content
     parser:               wysihtml5.dom.parse,
     // Class name which should be set on the contentEditable element in the created sandbox iframe, can be styled via the 'stylesheets' option
     composerClassName:    "wysihtml5-editor",
@@ -71,7 +73,12 @@
     contentEditableMode: false,
     // Classname of container that editor should not touch and pass through
     // Pass false to disable
-    uneditableContainerClassname: "wysihtml5-uneditable-container"
+    uneditableContainerClassname: "wysihtml5-uneditable-container",
+    // Browsers that support copied source handling will get a marking of the origin of the copied source (for determinig code cleanup rules on paste)
+    // Also copied source is based directly on selection - 
+    // (very useful for webkit based browsers where copy will otherwise contain a lot of code and styles based on whatever and not actually in selection).
+    // If falsy value is passed source override is also disabled
+    copyedFromMarking: '<meta name="copied-from" content="wysihtml5">'
   };
 
   wysihtml5.Editor = wysihtml5.lang.Dispatcher.extend(
@@ -196,14 +203,40 @@
      *  - Observes for paste and drop
      */
     _initParser: function() {
-      this.on("paste:composer", function() {
-        var keepScrollPosition  = true,
-            that                = this;
-        that.composer.selection.executeAndRestore(function() {
-          wysihtml5.quirks.cleanPastedHTML(that.composer.element);
-          that.parse(that.composer.element);
-        }, keepScrollPosition);
+      var that = this,
+          oldHtml,
+          cleanHtml;
+
+      if (wysihtml5.browser.supportsModenPaste()) {
+        this.on("paste:composer", function(event) {
+          event.preventDefault();
+          oldHtml = wysihtml5.dom.getPastedHtml(event);
+          if (oldHtml) {
+            that._cleanAndPaste(oldHtml);
+          }
+        });
+
+      } else {
+        this.on("beforepaste:composer", function(event) {
+          event.preventDefault();
+          wysihtml5.dom.getPastedHtmlWithDiv(that.composer, function(pastedHTML) {
+            if (pastedHTML) {
+              that._cleanAndPaste(pastedHTML);
+            }
+          });
+        });
+
+      }
+    },
+
+    _cleanAndPaste: function (oldHtml) {
+      var cleanHtml = wysihtml5.quirks.cleanPastedHTML(oldHtml, {
+        "referenceNode": this.composer.element,
+        "rules": this.config.pasteParserRulesets || [{"set": this.config.parserRules}],
+        "uneditableClass": this.config.uneditableContainerClassname
       });
+      this.composer.selection.deleteContents();
+      this.composer.selection.insertHTML(cleanHtml);
     }
   });
 })(wysihtml5);

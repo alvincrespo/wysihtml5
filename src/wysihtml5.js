@@ -22,6 +22,7 @@ var wysihtml5 = {
   views:      {},
 
   INVISIBLE_SPACE: "\uFEFF",
+  INVISIBLE_SPACE_REG_EXP: /\uFEFF/g,
 
   EMPTY_FUNCTION: function() {},
 
@@ -32,5 +33,6 @@ var wysihtml5 = {
   ENTER_KEY:      13,
   ESCAPE_KEY:     27,
   SPACE_KEY:      32,
+  TAB_KEY:        9,
   DELETE_KEY:     46
 };

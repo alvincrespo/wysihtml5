@@ -1,3 +1,37 @@
+*wysihtml5x 0.5.0-beta1* (December 4, 2014)
+* formatBlock update 
+	* Selections apply format to selection not its parent block, 
+	* Removed toggle functionality from many formatBlock commands (h1-6, p, pre ...) and added plaintext state to formatblock instead.
+	* Code modernization
+	* Changes API!
+* Allow tel: scheme in links
+* Fixed atributeless A tags
+* Added "dimension" to checkattributes methods (for with/height attributes where floating point numbrs and percentages are allowed) 
+
+*wysihtml5x 0.4.17* (November 6, 2014)
+* Updated rangy and added as node package
+* Updated qUnit for testing
+* Fixes some selection issues with webkit and autolinking
+* Refactored composer.observer for readability
+
+*wysihtml5x 0.4.16* (October 23, 2014)
+* Fix copy being broken for plain/text
+* Change deleting and selection behaviour of uneditable containers
+
+*wysihtml5x 0.4.15* (September 17, 2014)
+* Fixes copying incorrrect source (spans, styles etc.) from texteditor in webkit and adds ability to add separate ruleset for paste cleanup if source origin is editor itself
+
+*wysihtml5x 0.4.14* (September 10, 2014)
+* Adds ability for check_attributes parameter in cleanup rules to define attributes whose name is beginning with string (ex: "data-*")
+* Toolbar buttons active and disabled classes can be configured
+* Paste logic rewrite. Pasted data is now precaught and separate rulesets can be defined for pasted data.
+
+*wysihtml5x 0.4.13* (August 11, 2014)
+* Adds option for parser to keep comments
+* Fixes list insertion problems in IE
+* Fixes some leaking varaibles reduces browser error messages
+* Updates rangy to latest (1.3alpha.20140804)
+
 *wysihtml5x 0.4.12* (July 03, 2014)
 * Fixes some placeholder problems targeting Firefox and Safari.
 

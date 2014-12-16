@@ -84,19 +84,31 @@
     exec: function(composer, command, value) {
       var anchors = this.state(composer, command);
       if (anchors) {
+        // remove <a> tag if there's no attributes provided.
+        if ((!value || !value.href) && anchors.length !== null && anchors.length !== undefined && anchors.length > 0)
+        {
+          for(var i=0; i < anchors.length; i++)
+          {
+            wysihtml5.dom.unwrap(anchors[i]);
+          }
+          return;
+        }
+
         // Selection contains links then change attributes of these links
         composer.selection.executeAndRestore(function() {
           _changeLinks(composer, anchors, value);
         });
       } else {
         // Create links
-        value = typeof(value) === "object" ? value : { href: value };
-        _format(composer, value);
+        if (value && value.href) {
+          value = typeof(value) === "object" ? value : { href: value };
+          _format(composer, value);
+        }
       }
     },
 
     state: function(composer, command) {
-      return wysihtml5.commands.formatInline.state(composer, command, "A");
+      return wysihtml5.commands.formatInline.state(composer, command, "a");
     }
   };
 })(wysihtml5);

@@ -50,7 +50,9 @@
  *    // => '<p class="red">foo</p><p>bar</p>'
  */
 
-wysihtml5.dom.parse = (function() {
+wysihtml5.dom.parse = function(elementOrHtml_current, config_current) {
+  /* TODO: Currently escaped module pattern as otherwise folloowing default swill be shared among multiple editors.
+   * Refactor whole code as this method while workind is kind of awkward too */
 
   /**
    * It's not possible to use a XMLParser/DOMParser as HTML5 is not always well-formed XML
@@ -61,14 +63,17 @@ wysihtml5.dom.parse = (function() {
    */
   var NODE_TYPE_MAPPING = {
         "1": _handleElement,
-        "3": _handleText
+        "3": _handleText,
+        "8": _handleComment
       },
       // Rename unknown tags to this
       DEFAULT_NODE_NAME   = "span",
       WHITE_SPACE_REG_EXP = /\s+/,
       defaultRules        = { tags: {}, classes: {} },
       currentRules        = {},
-      uneditableClass     = false;
+      blockElements       = ["ADDRESS" ,"BLOCKQUOTE" ,"CENTER" ,"DIR" ,"DIV" ,"DL" ,"FIELDSET" ,
+                             "FORM", "H1" ,"H2" ,"H3" ,"H4" ,"H5" ,"H6" ,"ISINDEX" ,"MENU",
+                             "NOFRAMES", "NOSCRIPT" ,"OL" ,"P" ,"PRE","TABLE", "UL"];
 
   /**
    * Iterates over all childs of the element, recreates them, appends them into a document fragment
@@ -102,24 +107,32 @@ wysihtml5.dom.parse = (function() {
       clearInternals = true;
     }
 
-    if (config.uneditableClass) {
-      uneditableClass = config.uneditableClass;
-    }
-
     if (isString) {
       element = wysihtml5.dom.getAsDom(elementOrHtml, context);
     } else {
       element = elementOrHtml;
     }
 
+    if (currentRules.selectors) {
+      _applySelectorRules(element, currentRules.selectors);
+    }
+
     while (element.firstChild) {
       firstChild = element.firstChild;
-      newNode = _convert(firstChild, config.cleanUp, clearInternals);
+      newNode = _convert(firstChild, config.cleanUp, clearInternals, config.uneditableClass);
       if (newNode) {
         fragment.appendChild(newNode);
       }
       if (firstChild !== newNode) {
         element.removeChild(firstChild);
+      }
+    }
+
+    if (config.unjoinNbsps) {
+      // replace joined non-breakable spaces with unjoined
+      var txtnodes = wysihtml5.dom.getTextNodes(fragment);
+      for (var n = txtnodes.length; n--;) {
+        txtnodes[n].nodeValue = txtnodes[n].nodeValue.replace(/([\S\u00A0])\u00A0/gi, "$1 ");
       }
     }
 
@@ -132,7 +145,7 @@ wysihtml5.dom.parse = (function() {
     return isString ? wysihtml5.quirks.getCorrectInnerHTML(element) : element;
   }
 
-  function _convert(oldNode, cleanUp, clearInternals) {
+  function _convert(oldNode, cleanUp, clearInternals, uneditableClass) {
     var oldNodeType     = oldNode.nodeType,
         oldChilds       = oldNode.childNodes,
         oldChildsLength = oldChilds.length,
@@ -140,7 +153,8 @@ wysihtml5.dom.parse = (function() {
         method,
         fragment,
         newNode,
-        newChild;
+        newChild,
+        nodeDisplay;
 
     // Passes directly elemets with uneditable class
     if (uneditableClass && oldNodeType === 1 && wysihtml5.dom.hasClass(oldNode, uneditableClass)) {
@@ -164,7 +178,7 @@ wysihtml5.dom.parse = (function() {
 
             for (i = oldChildsLength; i--;) {
               if (oldChilds[i]) {
-                newChild = _convert(oldChilds[i], cleanUp, clearInternals);
+                newChild = _convert(oldChilds[i], cleanUp, clearInternals, uneditableClass);
                 if (newChild) {
                   if (oldChilds[i] === newChild) {
                     i--;
@@ -172,6 +186,16 @@ wysihtml5.dom.parse = (function() {
                   fragment.insertBefore(newChild, fragment.firstChild);
                 }
               }
+            }
+
+            nodeDisplay = wysihtml5.dom.getStyle("display").from(oldNode);
+
+            if (nodeDisplay === '') {
+              // Handle display style when element not in dom
+              nodeDisplay = wysihtml5.lang.array(blockElements).contains(oldNode.tagName) ? "block" : "";
+            }
+            if (wysihtml5.lang.array(["block", "flex", "table"]).contains(nodeDisplay)) {
+              fragment.appendChild(oldNode.ownerDocument.createElement("br"));
             }
 
             // TODO: try to minimize surplus spaces
@@ -202,7 +226,7 @@ wysihtml5.dom.parse = (function() {
     // Converts all childnodes
     for (i=0; i<oldChildsLength; i++) {
       if (oldChilds[i]) {
-        newChild = _convert(oldChilds[i], cleanUp, clearInternals);
+        newChild = _convert(oldChilds[i], cleanUp, clearInternals, uneditableClass);
         if (newChild) {
           if (oldChilds[i] === newChild) {
             i--;
@@ -235,12 +259,31 @@ wysihtml5.dom.parse = (function() {
     return newNode;
   }
 
+  function _applySelectorRules (element, selectorRules) {
+    var sel, method, els;
+
+    for (sel in selectorRules) {
+      if (selectorRules.hasOwnProperty(sel)) {
+        if (wysihtml5.lang.object(selectorRules[sel]).isFunction()) {
+          method = selectorRules[sel];
+        } else if (typeof(selectorRules[sel]) === "string" && elementHandlingMethods[selectorRules[sel]]) {
+          method = elementHandlingMethods[selectorRules[sel]];
+        }
+        els = element.querySelectorAll(sel);
+        for (var i = els.length; i--;) {
+          method(els[i]);
+        }
+      }
+    }
+  }
+
   function _handleElement(oldNode, clearInternals) {
     var rule,
         newNode,
         tagRules    = currentRules.tags,
         nodeName    = oldNode.nodeName.toLowerCase(),
-        scopeName   = oldNode.scopeName;
+        scopeName   = oldNode.scopeName,
+        renameTag;
 
     /**
      * We already parsed that element
@@ -303,13 +346,24 @@ wysihtml5.dom.parse = (function() {
       return oldNode;
     }
 
-    newNode = oldNode.ownerDocument.createElement(rule.rename_tag || nodeName);
+    // tests if type condition is met or node should be removed/unwrapped/renamed
+    if (rule.one_of_type && !_testTypes(oldNode, currentRules, rule.one_of_type, clearInternals)) {
+      if (rule.remove_action) {
+        if (rule.remove_action === "unwrap") {
+          return false;
+        } else if (rule.remove_action === "rename") {
+          renameTag = rule.remove_action_rename_to || DEFAULT_NODE_NAME;
+        } else {
+          return null;
+        }
+      } else {
+        return null;
+      }
+    }
+
+    newNode = oldNode.ownerDocument.createElement(renameTag || rule.rename_tag || nodeName);
     _handleAttributes(oldNode, newNode, rule, clearInternals);
     _handleStyles(oldNode, newNode, rule);
-    // tests if type condition is met or node should be removed/unwrapped
-    if (rule.one_of_type && !_testTypes(oldNode, currentRules, rule.one_of_type, clearInternals)) {
-      return (rule.remove_action && rule.remove_action == "unwrap") ? false : null;
-    }
 
     oldNode = null;
 
@@ -398,7 +452,7 @@ wysihtml5.dom.parse = (function() {
     if (definition.attrs) {
         for (a in definition.attrs) {
             if (definition.attrs.hasOwnProperty(a)) {
-                attr = _getAttribute(oldNode, a);
+                attr = wysihtml5.dom.getAttribute(oldNode, a);
                 if (typeof(attr) === "string") {
                     if (attr.search(definition.attrs[a]) > -1) {
                         return true;
@@ -411,24 +465,79 @@ wysihtml5.dom.parse = (function() {
   }
 
   function _handleStyles(oldNode, newNode, rule) {
-    var s;
+    var s, v;
     if(rule && rule.keep_styles) {
       for (s in rule.keep_styles) {
         if (rule.keep_styles.hasOwnProperty(s)) {
-          if (s == "float") {
+          v = (s === "float") ? oldNode.style.styleFloat || oldNode.style.cssFloat : oldNode.style[s];
+          // value can be regex and if so should match or style skipped
+          if (rule.keep_styles[s] instanceof RegExp && !(rule.keep_styles[s].test(v))) {
+            continue;
+          }
+          if (s === "float") {
             // IE compability
-            if (oldNode.style.styleFloat) {
-              newNode.style.styleFloat = oldNode.style.styleFloat;
-            }
-            if (oldNode.style.cssFloat) {
-              newNode.style.cssFloat = oldNode.style.cssFloat;
-            }
+            newNode.style[(oldNode.style.styleFloat) ? 'styleFloat': 'cssFloat'] = v;
            } else if (oldNode.style[s]) {
-             newNode.style[s] = oldNode.style[s];
+             newNode.style[s] = v;
            }
         }
       }
     }
+  };
+
+  function _getAttributesBeginningWith(beginning, attributes) {
+    var returnAttributes = [];
+    for (var attr in attributes) {
+      if (attributes.hasOwnProperty(attr) && attr.indexOf(beginning) === 0) {
+        returnAttributes.push(attr);
+      }
+    }
+    return returnAttributes;
+  }
+
+  function _checkAttribute(attributeName, attributeValue, methodName, nodeName) {
+    var method = attributeCheckMethods[methodName],
+        newAttributeValue;
+
+    if (method) {
+      if (attributeValue || (attributeName === "alt" && nodeName == "IMG")) {
+        newAttributeValue = method(attributeValue);
+        if (typeof(newAttributeValue) === "string") {
+          return newAttributeValue;
+        }
+      }
+    }
+
+    return false;
+  }
+
+  function _checkAttributes(oldNode, local_attributes) {
+    var globalAttributes  = wysihtml5.lang.object(currentRules.attributes || {}).clone(), // global values for check/convert values of attributes
+        checkAttributes   = wysihtml5.lang.object(globalAttributes).merge( wysihtml5.lang.object(local_attributes || {}).clone()).get(),
+        attributes        = {},
+        oldAttributes     = wysihtml5.dom.getAttributes(oldNode),
+        attributeName, newValue, matchingAttributes;
+
+    for (attributeName in checkAttributes) {
+      if ((/\*$/).test(attributeName)) {
+
+        matchingAttributes = _getAttributesBeginningWith(attributeName.slice(0,-1), oldAttributes);
+        for (var i = 0, imax = matchingAttributes.length; i < imax; i++) {
+
+          newValue = _checkAttribute(matchingAttributes[i], oldAttributes[matchingAttributes[i]], checkAttributes[attributeName], oldNode.nodeName);
+          if (newValue !== false) {
+            attributes[matchingAttributes[i]] = newValue;
+          }
+        }
+      } else {
+        newValue = _checkAttribute(attributeName, oldAttributes[attributeName], checkAttributes[attributeName], oldNode.nodeName);
+        if (newValue !== false) {
+          attributes[attributeName] = newValue;
+        }
+      }
+    }
+
+    return attributes;
   }
 
   // TODO: refactor. Too long to read
@@ -438,7 +547,6 @@ wysihtml5.dom.parse = (function() {
         addClass            = rule.add_class,             // add classes based on existing attributes
         addStyle            = rule.add_style,             // add styles based on existing attributes
         setAttributes       = rule.set_attributes,        // attributes to set on the current node
-        checkAttributes     = rule.check_attributes,      // check/convert values of attributes
         allowedClasses      = currentRules.classes,
         i                   = 0,
         classes             = [],
@@ -450,7 +558,6 @@ wysihtml5.dom.parse = (function() {
         currentClass,
         newClass,
         attributeName,
-        newAttributeValue,
         method;
 
     for(var attribute in setAttributes) {
@@ -465,21 +572,8 @@ wysihtml5.dom.parse = (function() {
       attributes = wysihtml5.lang.object(setAttributes).clone();
     }
 
-    if (checkAttributes) {
-      for (attributeName in checkAttributes) {
-        method = attributeCheckMethods[checkAttributes[attributeName]];
-        if (!method) {
-          continue;
-        }
-        oldAttribute = _getAttribute(oldNode, attributeName);
-        if (oldAttribute || (attributeName === "alt" && oldNode.nodeName == "IMG")) {
-          newAttributeValue = method(oldAttribute);
-          if (typeof(newAttributeValue) === "string") {
-            attributes[attributeName] = newAttributeValue;
-          }
-        }
-      }
-    }
+    // check/convert values of attributes
+    attributes = wysihtml5.lang.object(attributes).merge(_checkAttributes(oldNode,  rule.check_attributes)).get();
 
     if (setClass) {
       classes.push(setClass);
@@ -491,7 +585,7 @@ wysihtml5.dom.parse = (function() {
         if (!method) {
           continue;
         }
-        newClass = method(_getAttribute(oldNode, attributeName));
+        newClass = method(wysihtml5.dom.getAttribute(oldNode, attributeName));
         if (typeof(newClass) === "string") {
           classes.push(newClass);
         }
@@ -505,7 +599,7 @@ wysihtml5.dom.parse = (function() {
           continue;
         }
 
-        newStyle = method(_getAttribute(oldNode, attributeName));
+        newStyle = method(wysihtml5.dom.getAttribute(oldNode, attributeName));
         if (typeof(newStyle) === "string") {
           styles.push(newStyle);
         }
@@ -514,7 +608,27 @@ wysihtml5.dom.parse = (function() {
 
 
     if (typeof(allowedClasses) === "string" && allowedClasses === "any" && oldNode.getAttribute("class")) {
-      attributes["class"] = oldNode.getAttribute("class");
+      if (currentRules.classes_blacklist) {
+        oldClasses = oldNode.getAttribute("class");
+        if (oldClasses) {
+          classes = classes.concat(oldClasses.split(WHITE_SPACE_REG_EXP));
+        }
+
+        classesLength = classes.length;
+        for (; i<classesLength; i++) {
+          currentClass = classes[i];
+          if (!currentRules.classes_blacklist[currentClass]) {
+            newClasses.push(currentClass);
+          }
+        }
+
+        if (newClasses.length) {
+          attributes["class"] = wysihtml5.lang.array(newClasses).unique().join(" ");
+        }
+
+      } else {
+        attributes["class"] = oldNode.getAttribute("class");
+      }
     } else {
       // make sure that wysihtml5 temp class doesn't get stripped out
       if (!clearInternals) {
@@ -545,7 +659,7 @@ wysihtml5.dom.parse = (function() {
     if (attributes["class"] && clearInternals) {
       attributes["class"] = attributes["class"].replace("wysiwyg-tmp-selected-cell", "");
       if ((/^\s*$/g).test(attributes["class"])) {
-        delete attributes.class;
+        delete attributes["class"];
       }
     }
 
@@ -575,58 +689,14 @@ wysihtml5.dom.parse = (function() {
     }
   }
 
-  /**
-   * IE gives wrong results for hasAttribute/getAttribute, for example:
-   *    var td = document.createElement("td");
-   *    td.getAttribute("rowspan"); // => "1" in IE
-   *
-   * Therefore we have to check the element's outerHTML for the attribute
-   */
-  var HAS_GET_ATTRIBUTE_BUG = !wysihtml5.browser.supportsGetAttributeCorrectly();
-  function _getAttribute(node, attributeName) {
-    attributeName = attributeName.toLowerCase();
-    var nodeName = node.nodeName;
-    if (nodeName == "IMG" && attributeName == "src" && _isLoadedImage(node) === true) {
-      // Get 'src' attribute value via object property since this will always contain the
-      // full absolute url (http://...)
-      // this fixes a very annoying bug in firefox (ver 3.6 & 4) and IE 8 where images copied from the same host
-      // will have relative paths, which the sanitizer strips out (see attributeCheckMethods.url)
-      return node.src;
-    } else if (HAS_GET_ATTRIBUTE_BUG && "outerHTML" in node) {
-      // Don't trust getAttribute/hasAttribute in IE 6-8, instead check the element's outerHTML
-      var outerHTML      = node.outerHTML.toLowerCase(),
-          // TODO: This might not work for attributes without value: <input disabled>
-          hasAttribute   = outerHTML.indexOf(" " + attributeName +  "=") != -1;
-
-      return hasAttribute ? node.getAttribute(attributeName) : null;
-    } else{
-      return node.getAttribute(attributeName);
-    }
-  }
-
-  /**
-   * Check whether the given node is a proper loaded image
-   * FIXME: Returns undefined when unknown (Chrome, Safari)
-   */
-  function _isLoadedImage(node) {
-    try {
-      return node.complete && !node.mozMatchesSelector(":-moz-broken");
-    } catch(e) {
-      if (node.complete && node.readyState === "complete") {
-        return true;
-      }
-    }
-  }
-
-  var INVISIBLE_SPACE_REG_EXP = /\uFEFF/g;
   function _handleText(oldNode) {
     var nextSibling = oldNode.nextSibling;
     if (nextSibling && nextSibling.nodeType === wysihtml5.TEXT_NODE) {
       // Concatenate text nodes
-      nextSibling.data = oldNode.data.replace(INVISIBLE_SPACE_REG_EXP, "") + nextSibling.data.replace(INVISIBLE_SPACE_REG_EXP, "");
+      nextSibling.data = oldNode.data.replace(wysihtml5.INVISIBLE_SPACE_REG_EXP, "") + nextSibling.data.replace(wysihtml5.INVISIBLE_SPACE_REG_EXP, "");
     } else {
       // \uFEFF = wysihtml5.INVISIBLE_SPACE (used as a hack in certain rich text editing situations)
-      var data = oldNode.data.replace(INVISIBLE_SPACE_REG_EXP, "");
+      var data = oldNode.data.replace(wysihtml5.INVISIBLE_SPACE_REG_EXP, "");
       return oldNode.ownerDocument.createTextNode(data);
     }
   }
@@ -642,6 +712,11 @@ wysihtml5.dom.parse = (function() {
     return string;
   }
 
+  function _handleComment(oldNode) {
+    if (currentRules.comments) {
+      return oldNode.ownerDocument.createComment(oldNode.nodeValue);
+    }
+  }
 
   // ------------ attribute checks ------------ \\
   var attributeCheckMethods = {
@@ -670,7 +745,7 @@ wysihtml5.dom.parse = (function() {
     })(),
 
     href: (function() {
-      var REG_EXP = /^(#|\/|https?:\/\/|mailto:)/i;
+      var REG_EXP = /^(#|\/|https?:\/\/|mailto:|tel:)/i;
       return function(attributeValue) {
         if (!attributeValue || !attributeValue.match(REG_EXP)) {
           return null;
@@ -691,10 +766,20 @@ wysihtml5.dom.parse = (function() {
       };
     })(),
 
+    // Integers. Does not work with floating point numbers and units
     numbers: (function() {
       var REG_EXP = /\D/g;
       return function(attributeValue) {
         attributeValue = (attributeValue || "").replace(REG_EXP, "");
+        return attributeValue || null;
+      };
+    })(),
+
+    // Useful for with/height attributes where floating points and percentages are allowed
+    dimension: (function() {
+      var REG_EXP = /\D*(\d+)(\.\d+)?\s?(%)?\D*/;
+      return function(attributeValue) {
+        attributeValue = (attributeValue || "").replace(REG_EXP, "$1$2$3");
         return attributeValue || null;
       };
     })(),
@@ -846,276 +931,287 @@ wysihtml5.dom.parse = (function() {
     })()
   };
 
-var entity_table = {
-  // 34: "&quot;",     // Quotation mark. Not required
-  38: "&amp;",        // Ampersand. Applied before everything else in the application
-  60: "&lt;",     // Less-than sign
-  62: "&gt;",     // Greater-than sign
-  // 63: "&#63;",      // Question mark
-  // 111: "&#111;",        // Latin small letter o
-  160: "&nbsp;",      // Non-breaking space
-  161: "&iexcl;",     // Inverted exclamation mark
-  162: "&cent;",      // Cent sign
-  163: "&pound;",     // Pound sign
-  164: "&curren;",    // Currency sign
-  165: "&yen;",       // Yen sign
-  166: "&brvbar;",    // Broken vertical bar
-  167: "&sect;",      // Section sign
-  168: "&uml;",       // Diaeresis
-  169: "&copy;",      // Copyright sign
-  170: "&ordf;",      // Feminine ordinal indicator
-  171: "&laquo;",     // Left-pointing double angle quotation mark
-  172: "&not;",       // Not sign
-  173: "&shy;",       // Soft hyphen
-  174: "&reg;",       // Registered sign
-  175: "&macr;",      // Macron
-  176: "&deg;",       // Degree sign
-  177: "&plusmn;",    // Plus-minus sign
-  178: "&sup2;",      // Superscript two
-  179: "&sup3;",      // Superscript three
-  180: "&acute;",     // Acute accent
-  181: "&micro;",     // Micro sign
-  182: "&para;",      // Pilcrow sign
-  183: "&middot;",    // Middle dot
-  184: "&cedil;",     // Cedilla
-  185: "&sup1;",      // Superscript one
-  186: "&ordm;",      // Masculine ordinal indicator
-  187: "&raquo;",     // Right-pointing double angle quotation mark
-  188: "&frac14;",    // Vulgar fraction one-quarter
-  189: "&frac12;",    // Vulgar fraction one-half
-  190: "&frac34;",    // Vulgar fraction three-quarters
-  191: "&iquest;",    // Inverted question mark
-  192: "&Agrave;",    // A with grave
-  193: "&Aacute;",    // A with acute
-  194: "&Acirc;",     // A with circumflex
-  195: "&Atilde;",    // A with tilde
-  196: "&Auml;",      // A with diaeresis
-  197: "&Aring;",     // A with ring above
-  198: "&AElig;",     // AE
-  199: "&Ccedil;",    // C with cedilla
-  200: "&Egrave;",    // E with grave
-  201: "&Eacute;",    // E with acute
-  202: "&Ecirc;",     // E with circumflex
-  203: "&Euml;",      // E with diaeresis
-  204: "&Igrave;",    // I with grave
-  205: "&Iacute;",    // I with acute
-  206: "&Icirc;",     // I with circumflex
-  207: "&Iuml;",      // I with diaeresis
-  208: "&ETH;",       // Eth
-  209: "&Ntilde;",    // N with tilde
-  210: "&Ograve;",    // O with grave
-  211: "&Oacute;",    // O with acute
-  212: "&Ocirc;",     // O with circumflex
-  213: "&Otilde;",    // O with tilde
-  214: "&Ouml;",      // O with diaeresis
-  215: "&times;",     // Multiplication sign
-  216: "&Oslash;",    // O with stroke
-  217: "&Ugrave;",    // U with grave
-  218: "&Uacute;",    // U with acute
-  219: "&Ucirc;",     // U with circumflex
-  220: "&Uuml;",      // U with diaeresis
-  221: "&Yacute;",    // Y with acute
-  222: "&THORN;",     // Thorn
-  223: "&szlig;",     // Sharp s. Also known as ess-zed
-  224: "&agrave;",    // a with grave
-  225: "&aacute;",    // a with acute
-  226: "&acirc;",     // a with circumflex
-  227: "&atilde;",    // a with tilde
-  228: "&auml;",      // a with diaeresis
-  229: "&aring;",     // a with ring above
-  230: "&aelig;",     // ae. Also known as ligature ae
-  231: "&ccedil;",    // c with cedilla
-  232: "&egrave;",    // e with grave
-  233: "&eacute;",    // e with acute
-  234: "&ecirc;",     // e with circumflex
-  235: "&euml;",      // e with diaeresis
-  236: "&igrave;",    // i with grave
-  237: "&iacute;",    // i with acute
-  238: "&icirc;",     // i with circumflex
-  239: "&iuml;",      // i with diaeresis
-  240: "&eth;",       // eth
-  241: "&ntilde;",    // n with tilde
-  242: "&ograve;",    // o with grave
-  243: "&oacute;",    // o with acute
-  244: "&ocirc;",     // o with circumflex
-  245: "&otilde;",    // o with tilde
-  246: "&ouml;",      // o with diaeresis
-  247: "&divide;",    // Division sign
-  248: "&oslash;",    // o with stroke. Also known as o with slash
-  249: "&ugrave;",    // u with grave
-  250: "&uacute;",    // u with acute
-  251: "&ucirc;",     // u with circumflex
-  252: "&uuml;",      // u with diaeresis
-  253: "&yacute;",    // y with acute
-  254: "&thorn;",     // thorn
-  255: "&yuml;",      // y with diaeresis
-  264: "&#264;",      // Latin capital letter C with circumflex
-  265: "&#265;",      // Latin small letter c with circumflex
-  338: "&OElig;",     // Latin capital ligature OE
-  339: "&oelig;",     // Latin small ligature oe
-  352: "&Scaron;",    // Latin capital letter S with caron
-  353: "&scaron;",    // Latin small letter s with caron
-  372: "&#372;",      // Latin capital letter W with circumflex
-  373: "&#373;",      // Latin small letter w with circumflex
-  374: "&#374;",      // Latin capital letter Y with circumflex
-  375: "&#375;",      // Latin small letter y with circumflex
-  376: "&Yuml;",      // Latin capital letter Y with diaeresis
-  402: "&fnof;",      // Latin small f with hook, function, florin
-  710: "&circ;",      // Modifier letter circumflex accent
-  732: "&tilde;",     // Small tilde
-  913: "&Alpha;",     // Alpha
-  914: "&Beta;",      // Beta
-  915: "&Gamma;",     // Gamma
-  916: "&Delta;",     // Delta
-  917: "&Epsilon;",   // Epsilon
-  918: "&Zeta;",      // Zeta
-  919: "&Eta;",       // Eta
-  920: "&Theta;",     // Theta
-  921: "&Iota;",      // Iota
-  922: "&Kappa;",     // Kappa
-  923: "&Lambda;",    // Lambda
-  924: "&Mu;",        // Mu
-  925: "&Nu;",        // Nu
-  926: "&Xi;",        // Xi
-  927: "&Omicron;",   // Omicron
-  928: "&Pi;",        // Pi
-  929: "&Rho;",       // Rho
-  931: "&Sigma;",     // Sigma
-  932: "&Tau;",       // Tau
-  933: "&Upsilon;",   // Upsilon
-  934: "&Phi;",       // Phi
-  935: "&Chi;",       // Chi
-  936: "&Psi;",       // Psi
-  937: "&Omega;",     // Omega
-  945: "&alpha;",     // alpha
-  946: "&beta;",      // beta
-  947: "&gamma;",     // gamma
-  948: "&delta;",     // delta
-  949: "&epsilon;",   // epsilon
-  950: "&zeta;",      // zeta
-  951: "&eta;",       // eta
-  952: "&theta;",     // theta
-  953: "&iota;",      // iota
-  954: "&kappa;",     // kappa
-  955: "&lambda;",    // lambda
-  956: "&mu;",        // mu
-  957: "&nu;",        // nu
-  958: "&xi;",        // xi
-  959: "&omicron;",   // omicron
-  960: "&pi;",        // pi
-  961: "&rho;",       // rho
-  962: "&sigmaf;",    // sigmaf
-  963: "&sigma;",     // sigma
-  964: "&tau;",       // tau
-  965: "&upsilon;",   // upsilon
-  966: "&phi;",       // phi
-  967: "&chi;",       // chi
-  968: "&psi;",       // psi
-  969: "&omega;",     // omega
-  977: "&thetasym;",  // Theta symbol
-  978: "&upsih;",     // Greek upsilon with hook symbol
-  982: "&piv;",       // Pi symbol
-  8194: "&ensp;",     // En space
-  8195: "&emsp;",     // Em space
-  8201: "&thinsp;",   // Thin space
-  8204: "&zwnj;",     // Zero width non-joiner
-  8205: "&zwj;",      // Zero width joiner
-  8206: "&lrm;",      // Left-to-right mark
-  8207: "&rlm;",      // Right-to-left mark
-  8211: "&ndash;",    // En dash
-  8212: "&mdash;",    // Em dash
-  8216: "&lsquo;",    // Left single quotation mark
-  8217: "&rsquo;",    // Right single quotation mark
-  8218: "&sbquo;",    // Single low-9 quotation mark
-  8220: "&ldquo;",    // Left double quotation mark
-  8221: "&rdquo;",    // Right double quotation mark
-  8222: "&bdquo;",    // Double low-9 quotation mark
-  8224: "&dagger;",   // Dagger
-  8225: "&Dagger;",   // Double dagger
-  8226: "&bull;",     // Bullet
-  8230: "&hellip;",   // Horizontal ellipsis
-  8240: "&permil;",   // Per mille sign
-  8242: "&prime;",    // Prime
-  8243: "&Prime;",    // Double Prime
-  8249: "&lsaquo;",   // Single left-pointing angle quotation
-  8250: "&rsaquo;",   // Single right-pointing angle quotation
-  8254: "&oline;",    // Overline
-  8260: "&frasl;",    // Fraction Slash
-  8364: "&euro;",     // Euro sign
-  8472: "&weierp;",   // Script capital
-  8465: "&image;",    // Blackletter capital I
-  8476: "&real;",     // Blackletter capital R
-  8482: "&trade;",    // Trade mark sign
-  8501: "&alefsym;",  // Alef symbol
-  8592: "&larr;",     // Leftward arrow
-  8593: "&uarr;",     // Upward arrow
-  8594: "&rarr;",     // Rightward arrow
-  8595: "&darr;",     // Downward arrow
-  8596: "&harr;",     // Left right arrow
-  8629: "&crarr;",    // Downward arrow with corner leftward. Also known as carriage return
-  8656: "&lArr;",     // Leftward double arrow. ISO 10646 does not say that lArr is the same as the 'is implied by' arrow but also does not have any other character for that function. So ? lArr can be used for 'is implied by' as ISOtech suggests
-  8657: "&uArr;",     // Upward double arrow
-  8658: "&rArr;",     // Rightward double arrow. ISO 10646 does not say this is the 'implies' character but does not have another character with this function so ? rArr can be used for 'implies' as ISOtech suggests
-  8659: "&dArr;",     // Downward double arrow
-  8660: "&hArr;",     // Left-right double arrow
-  // Mathematical Operators
-  8704: "&forall;",   // For all
-  8706: "&part;",     // Partial differential
-  8707: "&exist;",    // There exists
-  8709: "&empty;",    // Empty set. Also known as null set and diameter
-  8711: "&nabla;",    // Nabla. Also known as backward difference
-  8712: "&isin;",     // Element of
-  8713: "&notin;",    // Not an element of
-  8715: "&ni;",       // Contains as member
-  8719: "&prod;",     // N-ary product. Also known as product sign. Prod is not the same character as U+03A0 'greek capital letter pi' though the same glyph might be used for both
-  8721: "&sum;",      // N-ary summation. Sum is not the same character as U+03A3 'greek capital letter sigma' though the same glyph might be used for both
-  8722: "&minus;",    // Minus sign
-  8727: "&lowast;",   // Asterisk operator
-  8729: "&#8729;",    // Bullet operator
-  8730: "&radic;",    // Square root. Also known as radical sign
-  8733: "&prop;",     // Proportional to
-  8734: "&infin;",    // Infinity
-  8736: "&ang;",      // Angle
-  8743: "&and;",      // Logical and. Also known as wedge
-  8744: "&or;",       // Logical or. Also known as vee
-  8745: "&cap;",      // Intersection. Also known as cap
-  8746: "&cup;",      // Union. Also known as cup
-  8747: "&int;",      // Integral
-  8756: "&there4;",   // Therefore
-  8764: "&sim;",      // tilde operator. Also known as varies with and similar to. The tilde operator is not the same character as the tilde, U+007E, although the same glyph might be used to represent both
-  8773: "&cong;",     // Approximately equal to
-  8776: "&asymp;",    // Almost equal to. Also known as asymptotic to
-  8800: "&ne;",       // Not equal to
-  8801: "&equiv;",    // Identical to
-  8804: "&le;",       // Less-than or equal to
-  8805: "&ge;",       // Greater-than or equal to
-  8834: "&sub;",      // Subset of
-  8835: "&sup;",      // Superset of. Note that nsup, 'not a superset of, U+2283' is not covered by the Symbol font encoding and is not included.
-  8836: "&nsub;",     // Not a subset of
-  8838: "&sube;",     // Subset of or equal to
-  8839: "&supe;",     // Superset of or equal to
-  8853: "&oplus;",    // Circled plus. Also known as direct sum
-  8855: "&otimes;",   // Circled times. Also known as vector product
-  8869: "&perp;",     // Up tack. Also known as orthogonal to and perpendicular
-  8901: "&sdot;",     // Dot operator. The dot operator is not the same character as U+00B7 middle dot
-  // Miscellaneous Technical
-  8968: "&lceil;",    // Left ceiling. Also known as an APL upstile
-  8969: "&rceil;",    // Right ceiling
-  8970: "&lfloor;",   // left floor. Also known as APL downstile
-  8971: "&rfloor;",   // Right floor
-  9001: "&lang;",     // Left-pointing angle bracket. Also known as bra. Lang is not the same character as U+003C 'less than'or U+2039 'single left-pointing angle quotation mark'
-  9002: "&rang;",     // Right-pointing angle bracket. Also known as ket. Rang is not the same character as U+003E 'greater than' or U+203A 'single right-pointing angle quotation mark'
-  // Geometric Shapes
-  9642: "&#9642;",    // Black small square
-  9643: "&#9643;",    // White small square
-  9674: "&loz;",      // Lozenge
-  // Miscellaneous Symbols
-  9702: "&#9702;",    // White bullet
-  9824: "&spades;",   // Black (filled) spade suit
-  9827: "&clubs;",    // Black (filled) club suit. Also known as shamrock
-  9829: "&hearts;",   // Black (filled) heart suit. Also known as shamrock
-  9830: "&diams;"   // Black (filled) diamond suit
-}
 
-  return parse;
-})();
+  var entity_table = {
+    // 34: "&quot;",     // Quotation mark. Not required
+    38: "&amp;",        // Ampersand. Applied before everything else in the application
+    60: "&lt;",     // Less-than sign
+    62: "&gt;",     // Greater-than sign
+    // 63: "&#63;",      // Question mark
+    // 111: "&#111;",        // Latin small letter o
+    160: "&nbsp;",      // Non-breaking space
+    161: "&iexcl;",     // Inverted exclamation mark
+    162: "&cent;",      // Cent sign
+    163: "&pound;",     // Pound sign
+    164: "&curren;",    // Currency sign
+    165: "&yen;",       // Yen sign
+    166: "&brvbar;",    // Broken vertical bar
+    167: "&sect;",      // Section sign
+    168: "&uml;",       // Diaeresis
+    169: "&copy;",      // Copyright sign
+    170: "&ordf;",      // Feminine ordinal indicator
+    171: "&laquo;",     // Left-pointing double angle quotation mark
+    172: "&not;",       // Not sign
+    173: "&shy;",       // Soft hyphen
+    174: "&reg;",       // Registered sign
+    175: "&macr;",      // Macron
+    176: "&deg;",       // Degree sign
+    177: "&plusmn;",    // Plus-minus sign
+    178: "&sup2;",      // Superscript two
+    179: "&sup3;",      // Superscript three
+    180: "&acute;",     // Acute accent
+    181: "&micro;",     // Micro sign
+    182: "&para;",      // Pilcrow sign
+    183: "&middot;",    // Middle dot
+    184: "&cedil;",     // Cedilla
+    185: "&sup1;",      // Superscript one
+    186: "&ordm;",      // Masculine ordinal indicator
+    187: "&raquo;",     // Right-pointing double angle quotation mark
+    188: "&frac14;",    // Vulgar fraction one-quarter
+    189: "&frac12;",    // Vulgar fraction one-half
+    190: "&frac34;",    // Vulgar fraction three-quarters
+    191: "&iquest;",    // Inverted question mark
+    192: "&Agrave;",    // A with grave
+    193: "&Aacute;",    // A with acute
+    194: "&Acirc;",     // A with circumflex
+    195: "&Atilde;",    // A with tilde
+    196: "&Auml;",      // A with diaeresis
+    197: "&Aring;",     // A with ring above
+    198: "&AElig;",     // AE
+    199: "&Ccedil;",    // C with cedilla
+    200: "&Egrave;",    // E with grave
+    201: "&Eacute;",    // E with acute
+    202: "&Ecirc;",     // E with circumflex
+    203: "&Euml;",      // E with diaeresis
+    204: "&Igrave;",    // I with grave
+    205: "&Iacute;",    // I with acute
+    206: "&Icirc;",     // I with circumflex
+    207: "&Iuml;",      // I with diaeresis
+    208: "&ETH;",       // Eth
+    209: "&Ntilde;",    // N with tilde
+    210: "&Ograve;",    // O with grave
+    211: "&Oacute;",    // O with acute
+    212: "&Ocirc;",     // O with circumflex
+    213: "&Otilde;",    // O with tilde
+    214: "&Ouml;",      // O with diaeresis
+    215: "&times;",     // Multiplication sign
+    216: "&Oslash;",    // O with stroke
+    217: "&Ugrave;",    // U with grave
+    218: "&Uacute;",    // U with acute
+    219: "&Ucirc;",     // U with circumflex
+    220: "&Uuml;",      // U with diaeresis
+    221: "&Yacute;",    // Y with acute
+    222: "&THORN;",     // Thorn
+    223: "&szlig;",     // Sharp s. Also known as ess-zed
+    224: "&agrave;",    // a with grave
+    225: "&aacute;",    // a with acute
+    226: "&acirc;",     // a with circumflex
+    227: "&atilde;",    // a with tilde
+    228: "&auml;",      // a with diaeresis
+    229: "&aring;",     // a with ring above
+    230: "&aelig;",     // ae. Also known as ligature ae
+    231: "&ccedil;",    // c with cedilla
+    232: "&egrave;",    // e with grave
+    233: "&eacute;",    // e with acute
+    234: "&ecirc;",     // e with circumflex
+    235: "&euml;",      // e with diaeresis
+    236: "&igrave;",    // i with grave
+    237: "&iacute;",    // i with acute
+    238: "&icirc;",     // i with circumflex
+    239: "&iuml;",      // i with diaeresis
+    240: "&eth;",       // eth
+    241: "&ntilde;",    // n with tilde
+    242: "&ograve;",    // o with grave
+    243: "&oacute;",    // o with acute
+    244: "&ocirc;",     // o with circumflex
+    245: "&otilde;",    // o with tilde
+    246: "&ouml;",      // o with diaeresis
+    247: "&divide;",    // Division sign
+    248: "&oslash;",    // o with stroke. Also known as o with slash
+    249: "&ugrave;",    // u with grave
+    250: "&uacute;",    // u with acute
+    251: "&ucirc;",     // u with circumflex
+    252: "&uuml;",      // u with diaeresis
+    253: "&yacute;",    // y with acute
+    254: "&thorn;",     // thorn
+    255: "&yuml;",      // y with diaeresis
+    264: "&#264;",      // Latin capital letter C with circumflex
+    265: "&#265;",      // Latin small letter c with circumflex
+    338: "&OElig;",     // Latin capital ligature OE
+    339: "&oelig;",     // Latin small ligature oe
+    352: "&Scaron;",    // Latin capital letter S with caron
+    353: "&scaron;",    // Latin small letter s with caron
+    372: "&#372;",      // Latin capital letter W with circumflex
+    373: "&#373;",      // Latin small letter w with circumflex
+    374: "&#374;",      // Latin capital letter Y with circumflex
+    375: "&#375;",      // Latin small letter y with circumflex
+    376: "&Yuml;",      // Latin capital letter Y with diaeresis
+    402: "&fnof;",      // Latin small f with hook, function, florin
+    710: "&circ;",      // Modifier letter circumflex accent
+    732: "&tilde;",     // Small tilde
+    913: "&Alpha;",     // Alpha
+    914: "&Beta;",      // Beta
+    915: "&Gamma;",     // Gamma
+    916: "&Delta;",     // Delta
+    917: "&Epsilon;",   // Epsilon
+    918: "&Zeta;",      // Zeta
+    919: "&Eta;",       // Eta
+    920: "&Theta;",     // Theta
+    921: "&Iota;",      // Iota
+    922: "&Kappa;",     // Kappa
+    923: "&Lambda;",    // Lambda
+    924: "&Mu;",        // Mu
+    925: "&Nu;",        // Nu
+    926: "&Xi;",        // Xi
+    927: "&Omicron;",   // Omicron
+    928: "&Pi;",        // Pi
+    929: "&Rho;",       // Rho
+    931: "&Sigma;",     // Sigma
+    932: "&Tau;",       // Tau
+    933: "&Upsilon;",   // Upsilon
+    934: "&Phi;",       // Phi
+    935: "&Chi;",       // Chi
+    936: "&Psi;",       // Psi
+    937: "&Omega;",     // Omega
+    945: "&alpha;",     // alpha
+    946: "&beta;",      // beta
+    947: "&gamma;",     // gamma
+    948: "&delta;",     // delta
+    949: "&epsilon;",   // epsilon
+    950: "&zeta;",      // zeta
+    951: "&eta;",       // eta
+    952: "&theta;",     // theta
+    953: "&iota;",      // iota
+    954: "&kappa;",     // kappa
+    955: "&lambda;",    // lambda
+    956: "&mu;",        // mu
+    957: "&nu;",        // nu
+    958: "&xi;",        // xi
+    959: "&omicron;",   // omicron
+    960: "&pi;",        // pi
+    961: "&rho;",       // rho
+    962: "&sigmaf;",    // sigmaf
+    963: "&sigma;",     // sigma
+    964: "&tau;",       // tau
+    965: "&upsilon;",   // upsilon
+    966: "&phi;",       // phi
+    967: "&chi;",       // chi
+    968: "&psi;",       // psi
+    969: "&omega;",     // omega
+    977: "&thetasym;",  // Theta symbol
+    978: "&upsih;",     // Greek upsilon with hook symbol
+    982: "&piv;",       // Pi symbol
+    8194: "&ensp;",     // En space
+    8195: "&emsp;",     // Em space
+    8201: "&thinsp;",   // Thin space
+    8204: "&zwnj;",     // Zero width non-joiner
+    8205: "&zwj;",      // Zero width joiner
+    8206: "&lrm;",      // Left-to-right mark
+    8207: "&rlm;",      // Right-to-left mark
+    8211: "&ndash;",    // En dash
+    8212: "&mdash;",    // Em dash
+    8216: "&lsquo;",    // Left single quotation mark
+    8217: "&rsquo;",    // Right single quotation mark
+    8218: "&sbquo;",    // Single low-9 quotation mark
+    8220: "&ldquo;",    // Left double quotation mark
+    8221: "&rdquo;",    // Right double quotation mark
+    8222: "&bdquo;",    // Double low-9 quotation mark
+    8224: "&dagger;",   // Dagger
+    8225: "&Dagger;",   // Double dagger
+    8226: "&bull;",     // Bullet
+    8230: "&hellip;",   // Horizontal ellipsis
+    8240: "&permil;",   // Per mille sign
+    8242: "&prime;",    // Prime
+    8243: "&Prime;",    // Double Prime
+    8249: "&lsaquo;",   // Single left-pointing angle quotation
+    8250: "&rsaquo;",   // Single right-pointing angle quotation
+    8254: "&oline;",    // Overline
+    8260: "&frasl;",    // Fraction Slash
+    8364: "&euro;",     // Euro sign
+    8472: "&weierp;",   // Script capital
+    8465: "&image;",    // Blackletter capital I
+    8476: "&real;",     // Blackletter capital R
+    8482: "&trade;",    // Trade mark sign
+    8501: "&alefsym;",  // Alef symbol
+    8592: "&larr;",     // Leftward arrow
+    8593: "&uarr;",     // Upward arrow
+    8594: "&rarr;",     // Rightward arrow
+    8595: "&darr;",     // Downward arrow
+    8596: "&harr;",     // Left right arrow
+    8629: "&crarr;",    // Downward arrow with corner leftward. Also known as carriage return
+    8656: "&lArr;",     // Leftward double arrow. ISO 10646 does not say that lArr is the same as the 'is implied by' arrow but also does not have any other character for that function. So ? lArr can be used for 'is implied by' as ISOtech suggests
+    8657: "&uArr;",     // Upward double arrow
+    8658: "&rArr;",     // Rightward double arrow. ISO 10646 does not say this is the 'implies' character but does not have another character with this function so ? rArr can be used for 'implies' as ISOtech suggests
+    8659: "&dArr;",     // Downward double arrow
+    8660: "&hArr;",     // Left-right double arrow
+    // Mathematical Operators
+    8704: "&forall;",   // For all
+    8706: "&part;",     // Partial differential
+    8707: "&exist;",    // There exists
+    8709: "&empty;",    // Empty set. Also known as null set and diameter
+    8711: "&nabla;",    // Nabla. Also known as backward difference
+    8712: "&isin;",     // Element of
+    8713: "&notin;",    // Not an element of
+    8715: "&ni;",       // Contains as member
+    8719: "&prod;",     // N-ary product. Also known as product sign. Prod is not the same character as U+03A0 'greek capital letter pi' though the same glyph might be used for both
+    8721: "&sum;",      // N-ary summation. Sum is not the same character as U+03A3 'greek capital letter sigma' though the same glyph might be used for both
+    8722: "&minus;",    // Minus sign
+    8727: "&lowast;",   // Asterisk operator
+    8729: "&#8729;",    // Bullet operator
+    8730: "&radic;",    // Square root. Also known as radical sign
+    8733: "&prop;",     // Proportional to
+    8734: "&infin;",    // Infinity
+    8736: "&ang;",      // Angle
+    8743: "&and;",      // Logical and. Also known as wedge
+    8744: "&or;",       // Logical or. Also known as vee
+    8745: "&cap;",      // Intersection. Also known as cap
+    8746: "&cup;",      // Union. Also known as cup
+    8747: "&int;",      // Integral
+    8756: "&there4;",   // Therefore
+    8764: "&sim;",      // tilde operator. Also known as varies with and similar to. The tilde operator is not the same character as the tilde, U+007E, although the same glyph might be used to represent both
+    8773: "&cong;",     // Approximately equal to
+    8776: "&asymp;",    // Almost equal to. Also known as asymptotic to
+    8800: "&ne;",       // Not equal to
+    8801: "&equiv;",    // Identical to
+    8804: "&le;",       // Less-than or equal to
+    8805: "&ge;",       // Greater-than or equal to
+    8834: "&sub;",      // Subset of
+    8835: "&sup;",      // Superset of. Note that nsup, 'not a superset of, U+2283' is not covered by the Symbol font encoding and is not included.
+    8836: "&nsub;",     // Not a subset of
+    8838: "&sube;",     // Subset of or equal to
+    8839: "&supe;",     // Superset of or equal to
+    8853: "&oplus;",    // Circled plus. Also known as direct sum
+    8855: "&otimes;",   // Circled times. Also known as vector product
+    8869: "&perp;",     // Up tack. Also known as orthogonal to and perpendicular
+    8901: "&sdot;",     // Dot operator. The dot operator is not the same character as U+00B7 middle dot
+    // Miscellaneous Technical
+    8968: "&lceil;",    // Left ceiling. Also known as an APL upstile
+    8969: "&rceil;",    // Right ceiling
+    8970: "&lfloor;",   // left floor. Also known as APL downstile
+    8971: "&rfloor;",   // Right floor
+    9001: "&lang;",     // Left-pointing angle bracket. Also known as bra. Lang is not the same character as U+003C 'less than'or U+2039 'single left-pointing angle quotation mark'
+    9002: "&rang;",     // Right-pointing angle bracket. Also known as ket. Rang is not the same character as U+003E 'greater than' or U+203A 'single right-pointing angle quotation mark'
+    // Geometric Shapes
+    9642: "&#9642;",    // Black small square
+    9643: "&#9643;",    // White small square
+    9674: "&loz;",      // Lozenge
+    // Miscellaneous Symbols
+    9702: "&#9702;",    // White bullet
+    9824: "&spades;",   // Black (filled) spade suit
+    9827: "&clubs;",    // Black (filled) club suit. Also known as shamrock
+    9829: "&hearts;",   // Black (filled) heart suit. Also known as shamrock
+    9830: "&diams;"   // Black (filled) diamond suit
+  }
+
+  var elementHandlingMethods = {
+    unwrap: function (element) {
+      wysihtml5.dom.unwrap(element);
+    },
+
+    remove: function (element) {
+      element.parentNode.removeChild(element);
+    }
+  };
+
+  return parse(elementOrHtml_current, config_current);
+};

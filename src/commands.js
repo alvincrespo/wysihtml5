@@ -37,6 +37,13 @@ wysihtml5.Commands = Base.extend(
         method  = obj && obj.exec,
         result  = null;
 
+    // If composer ahs placeholder unset it before command
+    // Do not apply on commands that are behavioral 
+    if (this.composer.hasPlaceholderSet() && !wysihtml5.lang.array(['styleWithCSS', 'enableObjectResizing', 'enableInlineTableEditing']).contains(command)) {
+      this.composer.element.innerHTML = "";
+      this.composer.selection.selectNode(this.composer.element);
+    }
+
     this.editor.fire("beforecommand:composer");
 
     if (method) {

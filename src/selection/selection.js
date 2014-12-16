@@ -103,6 +103,71 @@
       return this.setSelection(range);
     },
 
+    // Constructs a self removing whitespace (ain absolute positioned span) for placing selection caret when normal methods fail.
+    // Webkit has an issue with placing caret into places where there are no textnodes near by.
+    createTemporaryCaretSpaceAfter: function (node) {
+      var caretPlaceholder = this.doc.createElement('span'),
+          caretPlaceholderText = this.doc.createTextNode(wysihtml5.INVISIBLE_SPACE),
+          placeholderRemover = (function(event) {
+            // Self-destructs the caret and keeps the text inserted into it by user
+            var lastChild;
+
+            this.contain.removeEventListener('mouseup', placeholderRemover);
+            this.contain.removeEventListener('keydown', keyDownHandler);
+            this.contain.removeEventListener('touchstart', placeholderRemover);
+            this.contain.removeEventListener('focus', placeholderRemover);
+            this.contain.removeEventListener('blur', placeholderRemover);
+            this.contain.removeEventListener('paste', delayedPlaceholderRemover);
+            this.contain.removeEventListener('drop', delayedPlaceholderRemover);
+            this.contain.removeEventListener('beforepaste', delayedPlaceholderRemover);
+
+            // If user inserted sth it is in the placeholder and sgould be unwrapped and stripped of invisible whitespace hack
+            // Otherwise the wrapper can just be removed
+            if (caretPlaceholder && caretPlaceholder.parentNode) {
+              caretPlaceholder.innerHTML = caretPlaceholder.innerHTML.replace(wysihtml5.INVISIBLE_SPACE_REG_EXP, "");
+              if ((/[^\s]+/).test(caretPlaceholder.innerHTML)) {
+                lastChild = caretPlaceholder.lastChild;
+                wysihtml5.dom.unwrap(caretPlaceholder);
+                this.setAfter(lastChild);
+              } else {
+                caretPlaceholder.parentNode.removeChild(caretPlaceholder);
+              }
+
+            }
+          }).bind(this),
+          delayedPlaceholderRemover = function (event) {
+            if (caretPlaceholder && caretPlaceholder.parentNode) {
+              setTimeout(placeholderRemover, 0);
+            }
+          },
+          keyDownHandler = function(event) {
+            if (event.which !== 8 && event.which !== 91 && event.which !== 17 && (event.which !== 86 || (!event.ctrlKey && !event.metaKey))) {
+              placeholderRemover();
+            }
+          };
+
+      caretPlaceholder.style.position = 'absolute';
+      caretPlaceholder.style.display = 'block';
+      caretPlaceholder.style.minWidth = '1px';
+      caretPlaceholder.style.zIndex = '99999';
+      caretPlaceholder.appendChild(caretPlaceholderText);
+
+      node.parentNode.insertBefore(caretPlaceholder, node.nextSibling);
+      this.setBefore(caretPlaceholderText);
+
+      // Remove the caret fix on any of the following events (some are delayed as content change happens after event)
+      this.contain.addEventListener('mouseup', placeholderRemover);
+      this.contain.addEventListener('keydown', keyDownHandler);
+      this.contain.addEventListener('touchstart', placeholderRemover);
+      this.contain.addEventListener('focus', placeholderRemover);
+      this.contain.addEventListener('blur', placeholderRemover);
+      this.contain.addEventListener('paste', delayedPlaceholderRemover);
+      this.contain.addEventListener('drop', delayedPlaceholderRemover);
+      this.contain.addEventListener('beforepaste', delayedPlaceholderRemover);
+
+      return caretPlaceholder;
+    },
+
     /**
      * Set the caret after the given node
      *
@@ -110,12 +175,37 @@
      * @example
      *    selection.setBefore(myElement);
      */
-    setAfter: function(node) {
-      var range = rangy.createRange(this.doc);
+    setAfter: function(node, notVisual) {
+      var range = rangy.createRange(this.doc),
+          originalScrollTop = this.doc.documentElement.scrollTop || this.doc.body.scrollTop || this.doc.defaultView.pageYOffset,
+          originalScrollLeft = this.doc.documentElement.scrollLeft || this.doc.body.scrollLeft || this.doc.defaultView.pageXOffset,
+          sel;
 
       range.setStartAfter(node);
       range.setEndAfter(node);
-      return this.setSelection(range);
+      this.composer.element.focus();
+      this.doc.defaultView.scrollTo(originalScrollLeft, originalScrollTop);
+      sel = this.setSelection(range);
+
+      // Webkit fails to add selection if there are no textnodes in that region
+      // (like an uneditable container at the end of content).
+      if (!sel) {
+        if (notVisual) {
+          // If setAfter is used as internal between actions, self-removing caretPlaceholder has simpler implementation
+          // and remove itself in call stack end instead on user interaction 
+          var caretPlaceholder = this.doc.createTextNode(wysihtml5.INVISIBLE_SPACE);
+          node.parentNode.insertBefore(caretPlaceholder, node.nextSibling);
+          this.selectNode(caretPlaceholder);
+          setTimeout(function() {
+            if (caretPlaceholder && caretPlaceholder.parentNode) {
+              caretPlaceholder.parentNode.removeChild(caretPlaceholder);
+            }
+          }, 0);
+        } else {
+          this.createTemporaryCaretSpaceAfter(node);
+        }
+      }
+      return sel;
     },
 
     /**
@@ -138,7 +228,6 @@
         // Make sure that caret is visible in node by inserting a zero width no breaking space
         try { node.innerHTML = wysihtml5.INVISIBLE_SPACE; } catch(e) {}
       }
-
       if (canHaveHTML) {
         range.selectNodeContents(node);
       } else {
@@ -212,6 +301,19 @@
       return nodes;
     },
 
+    filterElements: function(filter) {
+      var ranges = this.getOwnRanges(),
+          nodes = [], curNodes;
+
+      for (var i = 0, maxi = ranges.length; i < maxi; i++) {
+        curNodes = ranges[i].getNodes([1], function(element){
+          return filter(element, ranges[i]);
+        });
+        nodes = nodes.concat(curNodes);
+      }
+      return nodes;
+    },
+
     containsUneditable: function() {
       var uneditables = this.getOwnUneditables(),
           selection = this.getSelection();
@@ -225,15 +327,38 @@
       return false;
     },
 
+    // Deletes selection contents making sure uneditables/unselectables are not partially deleted
+    // Triggers wysihtml5:uneditable:delete custom event on all deleted uneditables if customevents suppoorted
     deleteContents: function()  {
-      var ranges = this.getOwnRanges();
-      for (var i = ranges.length; i--;) {
-        ranges[i].deleteContents();
+      var range = this.getRange(),
+          startParent, endParent, uneditables, ev;
+
+      if (this.unselectableClass) {
+        if ((startParent = wysihtml5.dom.getParentElement(range.startContainer, { query: "." + this.unselectableClass }, false, this.contain))) {
+          range.setStartBefore(startParent);
+        }
+        if ((endParent = wysihtml5.dom.getParentElement(range.endContainer, { query: "." + this.unselectableClass }, false, this.contain))) {
+          range.setEndAfter(endParent);
+        }
+
+        // If customevents present notify uneditable elements of being deleted
+        uneditables = range.getNodes([1], (function (node) {
+          return wysihtml5.dom.hasClass(node, this.unselectableClass);
+        }).bind(this));
+        for (var i = uneditables.length; i--;) {
+          try {
+            ev = new CustomEvent("wysihtml5:uneditable:delete");
+            uneditables[i].dispatchEvent(ev);
+          } catch (err) {}
+        }
+
       }
-      this.setSelection(ranges[0]);
+      range.deleteContents();
+      this.setSelection(range);
     },
 
     getPreviousNode: function(node, ignoreEmpty) {
+      var displayStyle;
       if (!node) {
         var selection = this.getSelection();
         node = selection.anchorNode;
@@ -254,12 +379,19 @@
          // do not count comments and other node types
          ret = this.getPreviousNode(ret, ignoreEmpty);
       } else if (ret && ret.nodeType === 3 && (/^\s*$/).test(ret.textContent)) {
-        // do not count empty textnodes as previus nodes
+        // do not count empty textnodes as previous nodes
         ret = this.getPreviousNode(ret, ignoreEmpty);
-      } else if (ignoreEmpty && ret && ret.nodeType === 1 && !wysihtml5.lang.array(["BR", "HR", "IMG"]).contains(ret.nodeName) && (/^[\s]*$/).test(ret.innerHTML)) {
+      } else if (ignoreEmpty && ret && ret.nodeType === 1) {
         // Do not count empty nodes if param set.
-        // Contenteditable tends to bypass and delete these silently when deleting with caret
-        ret = this.getPreviousNode(ret, ignoreEmpty);
+        // Contenteditable tends to bypass and delete these silently when deleting with caret when element is inline-like
+        displayStyle = wysihtml5.dom.getStyle("display").from(ret);
+        if (
+            !wysihtml5.lang.array(["BR", "HR", "IMG"]).contains(ret.nodeName) &&
+            !wysihtml5.lang.array(["block", "inline-block", "flex", "list-item", "table"]).contains(displayStyle) &&
+            (/^[\s]*$/).test(ret.innerHTML)
+          ) {
+            ret = this.getPreviousNode(ret, ignoreEmpty);
+          }
       } else if (!ret && node !== this.contain) {
         parent = node.parentNode;
         if (parent !== this.contain) {
@@ -275,7 +407,7 @@
           curEl, parents = [];
 
       for (var i = 0, maxi = nodes.length; i < maxi; i++) {
-        curEl = (nodes[i].nodeName &&  nodes[i].nodeName === 'LI') ? nodes[i] : wysihtml5.dom.getParentElement(nodes[i], { nodeName: ['LI']}, false, this.contain);
+        curEl = (nodes[i].nodeName &&  nodes[i].nodeName === 'LI') ? nodes[i] : wysihtml5.dom.getParentElement(nodes[i], { query: 'li'}, false, this.contain);
         if (curEl) {
           parents.push(curEl);
         }
@@ -311,12 +443,14 @@
           range = this.getRange(),
           startNode = range.startContainer;
       
-      if (startNode.nodeType === wysihtml5.TEXT_NODE) {
-        return this.isCollapsed() && (startNode.nodeType === wysihtml5.TEXT_NODE && (/^\s*$/).test(startNode.data.substr(0,range.startOffset)));
-      } else {
-        r.selectNodeContents(this.getRange().commonAncestorContainer);
-        r.collapse(true);
-        return (this.isCollapsed() && (r.startContainer === s.anchorNode || r.endContainer === s.anchorNode) && r.startOffset === s.anchorOffset);
+      if (startNode) {
+        if (startNode.nodeType === wysihtml5.TEXT_NODE) {
+          return this.isCollapsed() && (startNode.nodeType === wysihtml5.TEXT_NODE && (/^\s*$/).test(startNode.data.substr(0,range.startOffset)));
+        } else {
+          r.selectNodeContents(this.getRange().commonAncestorContainer);
+          r.collapse(true);
+          return (this.isCollapsed() && (r.startContainer === s.anchorNode || r.endContainer === s.anchorNode) && r.startOffset === s.anchorOffset);
+        }
       }
     },
 
@@ -324,9 +458,9 @@
         var selection = this.getSelection(),
             node = selection.anchorNode,
             offset = selection.anchorOffset;
-        if (ofNode) {
-          return (offset === 0 && (node.nodeName && node.nodeName === ofNode.toUpperCase() || wysihtml5.dom.getParentElement(node.parentNode, { nodeName: ofNode }, 1)));
-        } else {
+        if (ofNode && node) {
+          return (offset === 0 && (node.nodeName && node.nodeName === ofNode.toUpperCase() || wysihtml5.dom.getParentElement(node.parentNode, { query: ofNode }, 1)));
+        } else if (node) {
           return (offset === 0 && !this.getPreviousNode(node, true));
         }
     },
@@ -334,23 +468,45 @@
     caretIsBeforeUneditable: function() {
       var selection = this.getSelection(),
           node = selection.anchorNode,
-          offset = selection.anchorOffset;
+          offset = selection.anchorOffset,
+          childNodes = [],
+          range, contentNodes, lastNode;
 
-      if (offset === 0) {
-        var prevNode = this.getPreviousNode(node, true);
-        if (prevNode) {
-          var uneditables = this.getOwnUneditables();
-          for (var i = 0, maxi = uneditables.length; i < maxi; i++) {
-            if (prevNode === uneditables[i]) {
-              return uneditables[i];
+      if (node) {
+        if (offset === 0) {
+          var prevNode = this.getPreviousNode(node, true),
+              prevLeaf = prevNode ? wysihtml5.dom.domNode(prevNode).lastLeafNode((this.unselectableClass) ? {leafClasses: [this.unselectableClass]} : false) : null;
+          if (prevLeaf) {
+            var uneditables = this.getOwnUneditables();
+            for (var i = 0, maxi = uneditables.length; i < maxi; i++) {
+              if (prevLeaf === uneditables[i]) {
+                return uneditables[i];
+              }
             }
           }
+        } else {
+          range = selection.getRangeAt(0);
+          range.setStart(range.startContainer, range.startOffset - 1);
+          // TODO: make getting children on range a separate funtion
+          if (range) {
+            contentNodes = range.getNodes([1,3]);
+            for (var n = 0, max = contentNodes.length; n < max; n++) {
+              if (contentNodes[n].parentNode && contentNodes[n].parentNode === node) {
+                childNodes.push(contentNodes[n]);
+              }
+            }
+          }
+          lastNode = childNodes.length > 0 ? childNodes[childNodes.length -1] : null;
+          if (lastNode && lastNode.nodeType === 1 && wysihtml5.dom.hasClass(lastNode, this.unselectableClass)) {
+            return lastNode;
+          }
+
         }
       }
       return false;
     },
 
-    // TODO: Figure out a method from following 3 that would work universally
+    // TODO: Figure out a method from following 2 that would work universally
     executeAndRestoreRangy: function(method, restoreScrollPosition) {
       var win = this.doc.defaultView || this.doc.parentWindow,
           sel = rangy.saveSelection(win);
@@ -463,10 +619,18 @@
      */
     insertHTML: function(html) {
       var range     = rangy.createRange(this.doc),
-          node      = range.createContextualFragment(html),
-          lastChild = node.lastChild;
+          node = this.doc.createElement('DIV'),
+          fragment = this.doc.createDocumentFragment(),
+          lastChild;
 
-      this.insertNode(node);
+      node.innerHTML = html;
+      lastChild = node.lastChild;
+
+      while (node.firstChild) {
+        fragment.appendChild(node.firstChild);
+      }
+      this.insertNode(fragment);
+
       if (lastChild) {
         this.setAfter(lastChild);
       }
@@ -483,6 +647,33 @@
       var range = this.getRange();
       if (range) {
         range.insertNode(node);
+      }
+    },
+
+    splitElementAtCaret: function (element, insertNode) {
+      var sel = this.getSelection(),
+          range, contentAfterRangeStart,
+          firstChild, lastChild;
+
+      if (sel.rangeCount > 0) {
+        range = sel.getRangeAt(0).cloneRange(); // Create a copy of the selection range to work with
+
+        range.setEndAfter(element); // Place the end of the range after the element
+        contentAfterRangeStart = range.extractContents(); // Extract the contents of the element after the caret into a fragment
+
+        element.parentNode.insertBefore(contentAfterRangeStart, element.nextSibling);
+
+        firstChild = insertNode.firstChild;
+        lastChild = insertNode.lastChild;
+
+        element.parentNode.insertBefore(insertNode, element.nextSibling);
+
+        // Select inserted node contents
+        if (firstChild && lastChild) {
+           range.setStartBefore(firstChild);
+           range.setEndAfter(lastChild);
+           this.setSelection(range);
+        }
       }
     },
 
@@ -529,7 +720,7 @@
 
       tempElement.className = nodeOptions.className;
 
-      this.composer.commands.exec("formatBlock", nodeOptions.nodeName, nodeOptions.className);
+      this.composer.commands.exec("formatBlock", nodeOptions);
       tempDivElements = this.contain.querySelectorAll("." + nodeOptions.className);
       if (tempDivElements[0]) {
         tempDivElements[0].parentNode.insertBefore(tempElement, tempDivElements[0]);
@@ -607,6 +798,24 @@
       selection.modify("extend", "right", "lineboundary");
     },
 
+    // collapses selection to current line beginning or end
+    toLineBoundary: function (location, collapse) {
+      collapse = (typeof collapse === 'undefined') ? false : collapse;
+      if (wysihtml5.browser.supportsSelectionModify()) {
+        var win = this.doc.defaultView,
+            selection = win.getSelection();
+
+        selection.modify("extend", location, "lineboundary");
+        if (collapse) {
+          if (location === "left") {
+            selection.collapseToStart();
+          } else if (location === "right") {
+            selection.collapseToEnd();
+          }
+        }
+      }
+    },
+
     _selectLine_MSIE: function() {
       var range       = this.doc.selection.createRange(),
           rangeTop    = range.boundingTop,
@@ -662,7 +871,7 @@
     getNodes: function(nodeType, filter) {
       var range = this.getRange();
       if (range) {
-        return range.getNodes([nodeType], filter);
+        return range.getNodes(Array.isArray(nodeType) ? nodeType : [nodeType], filter);
       } else {
         return [];
       }
@@ -698,7 +907,7 @@
     },
 
     _detectInlineRangeProblems: function(range) {
-      position = dom.compareDocumentPosition(range.startContainer, range.endContainer);
+      var position = dom.compareDocumentPosition(range.startContainer, range.endContainer);
       return (
         range.endOffset == 0 &&
         position & 4 //Node.DOCUMENT_POSITION_FOLLOWING
@@ -772,10 +981,14 @@
       return rangy.getSelection(this.doc.defaultView || this.doc.parentWindow);
     },
 
+    // Sets selection in document to a given range
+    // Set selection method detects if it fails to set any selection in document and returns null on fail
+    // (especially needed in webkit where some ranges just can not create selection for no reason)
     setSelection: function(range) {
       var win       = this.doc.defaultView || this.doc.parentWindow,
           selection = rangy.getSelection(win);
-      return selection.setSingleRange(range);
+      selection.setSingleRange(range);
+      return (selection && selection.anchorNode && selection.focusNode) ? selection : null;
     },
 
     createRange: function() {
@@ -784,6 +997,14 @@
 
     isCollapsed: function() {
         return this.getSelection().isCollapsed;
+    },
+
+    getHtml: function() {
+      return this.getSelection().toHtml();
+    },
+
+    getPlainText: function () {
+      return this.getSelection().toString();
     },
 
     isEndToEndInNode: function(nodeNames) {
