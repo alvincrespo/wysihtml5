@@ -320,10 +320,6 @@ wysihtml5.dom.parse = function(elementOrHtml_current, config_current) {
       }
     }
 
-    if (nodeName === "#comment") {
-      nodeName = "comment";
-    }
-
     if (nodeName in tagRules) {
       rule = tagRules[nodeName];
       if (!rule || rule.remove === 1) {

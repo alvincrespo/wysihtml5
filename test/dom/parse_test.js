@@ -960,14 +960,6 @@ if (wysihtml5.browser.supported()) {
     QUnit.assert.equal(sanitized, html, "Liquid logic does not get encoded");
   });
 
-  test("Test keeping comments ", function() {
-    var rules = {
-      "comments": 1
-    },
-    input = 'Test <!-- some comment -->';
-    this.equal(this.sanitize(input, rules), input, "Comments are kept if configured to keep");
-  });
-
   test("Test global valid attributes for all elements ", function() {
     var rules = {
           "attributes": {
