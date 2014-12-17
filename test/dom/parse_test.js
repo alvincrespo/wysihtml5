@@ -222,60 +222,60 @@ if (wysihtml5.browser.supported()) {
     var rules = {
       tags: { p: true, span: true, div: true }
     };
-    
+
     var result = this.sanitize('<SPAN><P><SPAN><div>FOO</div>', rules);
     ok(result.indexOf("FOO") === result.lastIndexOf("FOO"));
   });
-  
-  
+
+
   test("Bug in IE8 where elements are duplicated when multiple parsed", function() {
     var rules = {
       tags: { p: true, span: true, div: true }
     };
-    
+
     var firstResult = this.sanitize('<SPAN><P><SPAN>foo<P></P>', rules);
     var secondResult = this.sanitize(firstResult, rules);
-    
+
     ok(secondResult.indexOf("foo") !== -1);
     this.equal(firstResult, secondResult);
-    
+
     firstResult = this.sanitize('<SPAN><DIV><SPAN>foo<DIV></DIV>', rules);
     secondResult = this.sanitize(firstResult, rules);
-    
+
     ok(secondResult.indexOf("foo") !== -1);
     this.equal(firstResult, secondResult);
   });
-  
+
   test("Test cleanup mode", function() {
     var rules = {
       classes: { a: 1, c: 1 },
       tags: { span: true, div: true }
     };
-    
+
     this.equal(
       this.sanitize("<div><span>foo</span></div>", rules, null, true),
       "<div>foo</div>"
     );
-    
+
     this.equal(
       this.sanitize("<span><p>foo</p></span>", rules, null, true),
       "foo"
     );
-    
+
     this.equal(
       this.sanitize('<span class="a"></span><span class="a">foo</span>', rules, null, true),
       '<span class="a">foo</span>',
       "Empty 'span' is correctly removed"
     );
-    
+
     this.equal(
       this.sanitize('<span><span class="a">1</span> <span class="b">2</span> <span class="c">3</span></span>', rules, null, true),
       '<span class="a">1</span> 2 <span class="c">3</span>',
       "Senseless 'span' is correctly removed"
     );
   });
-  
-  
+
+
   test("Advanced tests for 'img' elements", function() {
     var rules = {
       classes: {
@@ -427,7 +427,7 @@ if (wysihtml5.browser.supported()) {
       ),
       '<br class="wysiwyg-clear-left">'
     );
-    
+
     this.equal(
       this.sanitize(
         '<br class="wysiwyg-clear-left">',
@@ -435,7 +435,7 @@ if (wysihtml5.browser.supported()) {
       ),
       '<br class="wysiwyg-clear-left">'
     );
-    
+
     this.equal(
       this.sanitize(
         '<br clear="left" class="wysiwyg-clear-left">',
@@ -443,7 +443,7 @@ if (wysihtml5.browser.supported()) {
       ),
       '<br class="wysiwyg-clear-left">'
     );
-    
+
     this.equal(
       this.sanitize(
         '<br clear="left" class="wysiwyg-clear-left wysiwyg-clear-right">',
@@ -451,7 +451,7 @@ if (wysihtml5.browser.supported()) {
       ),
       '<br class="wysiwyg-clear-left wysiwyg-clear-right">'
     );
-    
+
     this.equal(
       this.sanitize(
         '<br clear="left" class="wysiwyg-clear-right">',
@@ -460,8 +460,8 @@ if (wysihtml5.browser.supported()) {
       '<br class="wysiwyg-clear-left wysiwyg-clear-right">'
     );
   });
-  
-  
+
+
   test("Advanced tests for 'font' elements", function() {
     var rules = {
       classes: {
@@ -481,7 +481,7 @@ if (wysihtml5.browser.supported()) {
         }
       }
     };
-    
+
     this.equal(
       this.sanitize(
         '<font size="1">foo</font>',
@@ -489,7 +489,7 @@ if (wysihtml5.browser.supported()) {
       ),
       '<span class="wysiwyg-font-size-xx-small">foo</span>'
     );
-    
+
     this.equal(
       this.sanitize(
         '<font size="2">foo</font>',
@@ -497,7 +497,7 @@ if (wysihtml5.browser.supported()) {
       ),
       '<span class="wysiwyg-font-size-small">foo</span>'
     );
-    
+
     this.equal(
       this.sanitize(
         '<font size="3">foo</font>',
@@ -505,7 +505,7 @@ if (wysihtml5.browser.supported()) {
       ),
       '<span class="wysiwyg-font-size-medium">foo</span>'
     );
-    
+
     this.equal(
       this.sanitize(
         '<font size="4">foo</font>',
@@ -513,7 +513,7 @@ if (wysihtml5.browser.supported()) {
       ),
       '<span class="wysiwyg-font-size-large">foo</span>'
     );
-    
+
     this.equal(
       this.sanitize(
         '<font size="5">foo</font>',
@@ -521,7 +521,7 @@ if (wysihtml5.browser.supported()) {
       ),
       '<span class="wysiwyg-font-size-x-large">foo</span>'
     );
-    
+
     this.equal(
       this.sanitize(
         '<font size="6">foo</font>',
@@ -529,7 +529,7 @@ if (wysihtml5.browser.supported()) {
       ),
       '<span class="wysiwyg-font-size-xx-large">foo</span>'
     );
-    
+
     this.equal(
       this.sanitize(
         '<font size="7">foo</font>',
@@ -537,7 +537,7 @@ if (wysihtml5.browser.supported()) {
       ),
       '<span class="wysiwyg-font-size-xx-large">foo</span>'
     );
-    
+
     this.equal(
       this.sanitize(
         '<font size="+1">foo</font>',
@@ -545,7 +545,7 @@ if (wysihtml5.browser.supported()) {
       ),
       '<span class="wysiwyg-font-size-larger">foo</span>'
     );
-    
+
     this.equal(
       this.sanitize(
         '<font size="-1">foo</font>',
@@ -554,8 +554,8 @@ if (wysihtml5.browser.supported()) {
       '<span class="wysiwyg-font-size-smaller">foo</span>'
     );
   });
-  
-  
+
+
   test("Check whether namespaces are handled correctly", function() {
     var rules = {
       tags: {
@@ -569,8 +569,8 @@ if (wysihtml5.browser.supported()) {
       "Unknown tag with namespace gets renamed to span"
     );
   });
-  
-  
+
+
   test("Check whether classes are correctly treated", function() {
     var rules = {
       classes: {
@@ -581,20 +581,20 @@ if (wysihtml5.browser.supported()) {
         footer: "div"
       }
     };
-    
+
     this.equal(
       this.sanitize('<header class="a b c">foo</header>', rules),
       '<span class="a c">foo</span>',
       "Allowed classes 'a' and 'c' are correctly kept and unknown class 'b' is correctly removed."
     );
-    
+
     this.equal(
       this.sanitize('<footer class="ab c d" class="a">foo</footer>', rules),
       '<div class="c">foo</div>',
       "Allowed classes 'c' is correctly kept and unknown class 'b' is correctly removed."
     );
   });
-  
+
   test("Check mailto links", function() {
     var rules = {
       tags: {
@@ -605,7 +605,7 @@ if (wysihtml5.browser.supported()) {
         }
       }
     };
-    
+
 
     this.equal(
       this.sanitize('<a href="mailto:foo@bar.com">foo</a>', rules),
@@ -631,7 +631,7 @@ if (wysihtml5.browser.supported()) {
       "'#'-starting anchor urls are not stripped"
     );
   });
-  
+
   test("Check custom data attributes", function() {
     var rules = {
       tags: {
@@ -642,7 +642,7 @@ if (wysihtml5.browser.supported()) {
         }
       }
     };
-    
+
 
     this.equal(
       this.sanitize('<span data-max-width="24px" data-min-width="25">foo</span>', rules),
@@ -650,7 +650,7 @@ if (wysihtml5.browser.supported()) {
       "custom data attributes are not stripped"
     );
   });
-  
+
   test("Check Firefox misbehavior with tilde characters in urls", function() {
     var rules = {
       tags: {
@@ -665,7 +665,7 @@ if (wysihtml5.browser.supported()) {
         }
       }
     };
-    
+
     // See https://bugzilla.mozilla.org/show_bug.cgi?id=664398
     //
     // In Firefox this:
@@ -679,29 +679,29 @@ if (wysihtml5.browser.supported()) {
       this.sanitize('<a href="http://google.com/~foo"></a>', rules).indexOf("~") !== -1
     );
   });
-  
+
   test("Check concatenation of text nodes", function() {
     var rules = {
       tags: { span: 1, div: 1 }
     };
-    
+
     var tree = document.createElement("div");
     tree.appendChild(document.createTextNode("foo "));
     tree.appendChild(document.createTextNode("bar baz "));
     tree.appendChild(document.createTextNode("bam! "));
-    
+
     var span = document.createElement("span");
     span.innerHTML = "boobs! hihihi ...";
     tree.appendChild(span);
-    
+
     var result = this.sanitize(tree, rules);
     equal(result.childNodes.length, 2);
     equal(result.innerHTML, "foo bar baz bam! <span>boobs! hihihi ...</span>");
   });
-  
+
   test("Check element unwrapping", function() {
     var rules = {
-      tags: { 
+      tags: {
           div: {
               unwrap: 1
           },
@@ -712,13 +712,13 @@ if (wysihtml5.browser.supported()) {
     },
     input = "<div>Hi,<span> there<span></span>!</span></div>",
     output = "Hi, there!";
-    
+
     this.equal(this.sanitize(input, rules), output);
   });
-  
+
   test("Check spacing when unwrapping elements", function() {
     var rules = {
-      tags: { 
+      tags: {
           table: {
               unwrap: 1
           },
@@ -743,11 +743,11 @@ if (wysihtml5.browser.supported()) {
     output_list = "This is a list",
     input_table = "<table><tbody><tr><td>This</td><td>is</td><td>a</td><td>table</td></tr></tbody></table>",
     output_table = "This is a table";
-    
+
     this.equal(this.sanitize(input_list, rules), output_list, "List unwrapping working ok");
     this.equal(this.sanitize(input_table, rules), output_table, "Table unwrapping working ok");
   });
-  
+
   test("Test valid type check by attributes", function() {
     var rules = {
       "type_definitions": {
@@ -755,9 +755,9 @@ if (wysihtml5.browser.supported()) {
             "attrs": {
                 "src": /^[^data\:]/i
             }
-         } 
+         }
       },
-      "tags": { 
+      "tags": {
           "img": {
               "one_of_type": {
                   "valid_image_src": 1
@@ -767,14 +767,14 @@ if (wysihtml5.browser.supported()) {
                   "height": "numbers",
                   "width": "numbers",
                   "alt": "alt"
-              } 
+              }
           }
        }
     },
     input = '<img src="data:image/gif;base64,R0lGODlhAQABAPAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==" alt="alt" />',
     input_valid = '<img alt="" src="http://www.asd/a.jpg">',
     input_valid_2 = '<img src="http://reykjavik.edicy.co/photos/photo02.jpg" alt="" height="243" width="710">';
-    
+
     this.equal(this.sanitize(input, rules), "", "Image with data src gets removed");
     this.equal(this.sanitize(input_valid, rules), input_valid, "Valid image is kept");
     this.equal(this.sanitize(input_valid_2, rules), input_valid_2, "Valid image is kept2");
@@ -925,6 +925,23 @@ if (wysihtml5.browser.supported()) {
     var sanitized = this.sanitize(html, rules);
 
     QUnit.assert.equal(sanitized, html, "Liquid logic does not get encoded");
+  });
+
+  test("Encodes user entered data", function() {
+    var htmlOriginal = '<a href="{% if customer.first_name.size > 0 %} http://coffee.it {% else %} http://doughnut.it {% endif %}">Is this < 2?</a>';
+    var htmlResult = '<a href="{% if customer.first_name.size > 0 %} http://coffee.it {% else %} http://doughnut.it {% endif %}">Is this &lt; 2?</a>';
+    var rules = {
+      tags: {
+        a: {
+          check_attributes: {
+            href:  "liquidURL"
+          }
+        }
+      }
+    }
+
+    var sanitized = this.sanitize(htmlOriginal, rules);
+    QUnit.assert.equal(sanitized, htmlResult, "Liquid logic does not get encoded and ascii characters < and > get encoded in user entered text.");    
   });
 
 }

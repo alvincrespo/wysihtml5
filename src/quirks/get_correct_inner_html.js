@@ -16,16 +16,22 @@
       return String.fromCharCode(38);
     });
 
+    var matchedLiquid = innerHTML.match(/({{.*?}}|{%.*?%})/g);
 
-    innerHTML = innerHTML.replace(/&gt;/, String.fromCharCode(62));
-    innerHTML = innerHTML.replace(/&lt;/, String.fromCharCode(60));        
+    if (matchedLiquid) {
+      for(var i = 0; i < matchedLiquid.length - 1; i++) {
+        var replacedGT = matchedLiquid[i].replace(/&gt;/, String.fromCharCode(62));
+        var replacedLT = matchedLiquid[i].replace(/&lt;/, String.fromCharCode(60));
 
-    // Get all liquid instances
-    // var matchedLiquid = innerHTML.match(/({{.*?}}|{%.*?%})/g);
-    // if (matchedLiquid) {
-    //   for(var i = 0; i < matchedLiquid.length - 1; i++) {
-    //   }
-    // }
+        if (replacedGT) {
+          innerHTML = innerHTML.replace(matchedLiquid[i], replacedGT);
+        }
+
+        if (replacedLT) {
+          innerHTML = innerHTML.replace(matchedLiquid[i], replacedLT);
+        }
+      }
+    }
 
     if (innerHTML.indexOf(TILDE_ESCAPED) === -1) {
       return innerHTML;
